@@ -27,6 +27,7 @@ __all__ = [
     "band",
     "content",
     "game",
+    "mindmetric",
     "notice",
     "render",
     "signal",
@@ -179,3 +180,21 @@ def game(key: str) -> tuple[str, list[str]]:
     if key not in data:
         raise ContentError(f"no hay explicacion para el juego {key!r}")
     return data[key]["titulo"], list(data[key]["parrafos"])
+
+
+def mindmetric(*path: str) -> object:
+    """Texto del demo provisional de MindMetric, por su ruta de claves.
+
+    Examples
+    --------
+    >>> mindmetric("marca", "nombre")
+    'MindMetric'
+    """
+    node: object = content().get("mindmetric")
+    if node is None:
+        raise ContentError("falta la seccion 'mindmetric' en el contenido")
+    for depth, key in enumerate(path):
+        if not isinstance(node, dict) or key not in node:
+            raise ContentError(f"no hay texto en mindmetric.{'.'.join(path[: depth + 1])}")
+        node = node[key]
+    return node

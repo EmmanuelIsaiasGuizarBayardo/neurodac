@@ -830,6 +830,7 @@ dependencies = [
     { name = "pandas" },
     { name = "plotly" },
     { name = "pyserial" },
+    { name = "scipy" },
 ]
 
 [package.dev-dependencies]
@@ -850,6 +851,7 @@ requires-dist = [
     { name = "pandas" },
     { name = "plotly" },
     { name = "pyserial" },
+    { name = "scipy" },
 ]
 
 [package.metadata.requires-dev]

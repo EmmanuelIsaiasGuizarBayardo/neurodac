@@ -109,7 +109,9 @@ requests==2.34.2
 retrying==1.4.2
     # via dash
 scipy==1.18.1
-    # via mne
+    # via
+    #   mne
+    #   neurodac
 setuptools==84.0.0
     # via dash
 six==1.17.0

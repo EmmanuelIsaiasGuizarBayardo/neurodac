@@ -208,5 +208,106 @@
       ],
       "nota": "La señal del visitante no se guarda en ningún momento. Vive en la memoria mientras dura la sesión y desaparece al detener. Si alguien pregunta, esa es la respuesta."
     }
+  },
+  "mindmetric": {
+    "marca": {
+      "nombre": "MindMetric",
+      "respaldo": "Tecnología de DUNNE"
+    },
+    "vistas": {
+      "persona": "Tu sesión",
+      "empresa": "Lo que ve la empresa"
+    },
+    "fuente": {
+      "en_vivo": "En vivo",
+      "sin_fuente": "Sin conexión"
+    },
+    "persona": {
+      "senal_titulo": "Tu señal en vivo",
+      "senal_nota": "Últimos 4 segundos, filtrada de 1 a 45 Hz. En rojo, lo que no viene del cerebro: un parpadeo o un movimiento.",
+      "espectro_titulo": "Cómo se reparte por frecuencia",
+      "espectro_nota": "La franja marca tu ritmo *alfa*, alrededor de tu frecuencia alfa individual.",
+      "indicador_titulo": "Tu ritmo alfa, comparado contigo",
+      "indicador_nota": "Se compara solo con tu propia línea base: sin puntajes y sin comparaciones con otras personas.",
+      "zonas": {
+        "debajo": "Por debajo de tu rango habitual",
+        "zona": "En tu zona habitual",
+        "encima": "Por encima de tu rango habitual"
+      },
+      "estados": {
+        "esperando": "Esperando una señal estable.",
+        "sin_linea_base": "Para comparar, primero medimos cómo es tu señal en reposo.",
+        "midiendo": "Midiendo tu línea base: ojos abiertos, mirada al frente y sin hablar.",
+        "en_vivo": "Prueba: cierra los ojos 10 segundos y observa.",
+        "ajustando": "Ajustando la señal: hubo un parpadeo o un movimiento.",
+        "pausa": "En pausa hasta que la señal se estabilice."
+      },
+      "boton_medir": "Medir línea base",
+      "boton_repetir": "Medir de nuevo",
+      "linea_base_abreviada": "Línea base abreviada para esta demostración: 30 segundos. En uso real dura 2 minutos."
+    },
+    "empresa": {
+      "titulo": "Lo que ve la empresa",
+      "subtitulo": "Piloto de 20 personas, semana 7 de 12.",
+      "aviso_simulados": "Datos simulados: no corresponden a ninguna persona ni empresa.",
+      "participacion_titulo": "Participación semanal, toda la empresa",
+      "participacion_eje": "Participación (%)",
+      "semana": "Semana",
+      "sesiones": "sesiones por persona esta semana, mediana entre quienes participaron",
+      "grupos_titulo": "Participación por grupo, esta semana",
+      "grupos": {
+        "todos": "Toda la empresa",
+        "operaciones": "Operaciones",
+        "administracion": "Administración",
+        "direccion": "Dirección"
+      },
+      "tamano": "Grupo de {n} personas",
+      "oculto": "No se muestra",
+      "reglas": {
+        "oculto": "El mínimo es de 5 personas por grupo. Con menos, cualquier dato apuntaría a alguien.",
+        "rango": "Con menos de 10 personas se reporta en rangos, para que no se pueda deducir quién participó.",
+        "porcentaje": "Porcentaje redondeado a múltiplos de 10."
+      },
+      "rangos": {
+        "menos": "Menos de la mitad participó",
+        "mitad": "Cerca de la mitad participó",
+        "mas": "Más de la mitad participó"
+      },
+      "nunca_titulo": "La empresa nunca ve",
+      "nunca": [
+        "La señal cerebral de nadie",
+        "Resultados individuales",
+        "Quién participa y quién no",
+        "Comparaciones entre personas"
+      ],
+      "acuerdo_titulo": "Se acuerda antes de empezar el piloto",
+      "acuerdo": [
+        "Participación y constancia, siempre en agregado",
+        "Una escala de estrés autorreportada, al inicio y al final",
+        "Qué tendría que pasar para considerar que funcionó"
+      ]
+    },
+    "limites": "Sin reclutamiento, sin evaluación de desempeño, sin detección de emociones y sin rankings de personas.",
+    "avisos": {
+      "prototipo": "Prototipo con un indicador provisional. No es un dispositivo médico.",
+      "no_se_guarda": "Nada de esta sesión se guarda."
+    },
+    "operacion": {
+      "titulo": "Operación",
+      "abrir": "Operación",
+      "fuente": "Fuente",
+      "diadema": "Diadema",
+      "simulada": "Simulada",
+      "puerto": "Puerto serial",
+      "conectar": "Conectar",
+      "detener": "Detener",
+      "cerrar": "Cerrar",
+    "falta_puerto": "Indica el puerto serial, por ejemplo COM5.",
+      "conectada": "Sesión activa en {nombre}.",
+      "detenida": "Detenido.",
+      "error": "No se pudo conectar: {error}",
+      "iaf": "IAF en uso: {iaf} Hz. Sin pico claro en la línea base se usa 10 Hz.",
+      "guion_simulado": "La señal simulada cierra los ojos a los 50 s de conectar, y después 12 s de cada 40. Pide la línea base en cuanto la señal esté lista."
+    }
   }
 }

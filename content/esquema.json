@@ -38,6 +38,32 @@
           "minLength": 1
         }
       }
+    },
+    "texto_anidado": {
+      "description": "Texto, lista de textos u objeto anidado de textos, con claves ASCII.",
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/$defs/clave"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/texto_anidado"
+          }
+        }
+      ]
     }
   },
   "properties": {
@@ -363,6 +389,39 @@
             "nota": {
               "type": "string"
             }
+          }
+        }
+      }
+    },
+    "mindmetric": {
+      "description": "Público, salvo la sección operacion: textos del demo provisional de MindMetric. Los campos de operacion son solo para el personal.",
+      "type": "object",
+      "required": [
+        "marca",
+        "vistas",
+        "fuente",
+        "persona",
+        "empresa",
+        "limites",
+        "avisos",
+        "operacion"
+      ],
+      "propertyNames": {
+        "$ref": "#/$defs/clave"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/texto_anidado"
+      },
+      "properties": {
+        "operacion": {
+          "description": "Solo personal: etiquetas y mensajes del panel de operación.",
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/$defs/clave"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
           }
         }
       }

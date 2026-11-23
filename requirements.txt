@@ -153,7 +153,9 @@ rpds-py==2026.6.3
     #   referencing
 ruff==0.16.8
 scipy==1.18.1
-    # via mne
+    # via
+    #   mne
+    #   neurodac
 setuptools==84.0.0
     # via dash
 six==1.17.0
