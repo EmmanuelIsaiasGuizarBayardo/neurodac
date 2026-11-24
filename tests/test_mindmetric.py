@@ -28,12 +28,15 @@ from neurodac.mindmetric_analysis import (
     LiveAnalyzer,
     MetricStatus,
     Zone,
+    aperiodic_exponent,
+    aperiodic_fit,
     aperiodic_residual,
     longest_clean_run,
     periodic_band_power,
     spectrum,
     zone_for,
 )
+from neurodac.mindmetric_history import PRACTICE_GOAL_S, FunnelCounts, SessionHistory, StandFunnel
 from neurodac.mindmetric_panel import (
     CURRENT_WEEK,
     GROUPS,
@@ -43,6 +46,7 @@ from neurodac.mindmetric_panel import (
     simulate_pilot,
 )
 from neurodac.mindmetric_sim import MindMetricSimulatedSource, eyes_closed_at
+from neurodac.mindmetric_views import fit_patch, quality_children, spectrogram_patch
 from neurodac.thinkgear import Code, ThinkGearParser
 
 TICK_S = 0.15
@@ -395,6 +399,126 @@ def test_pagina_no_depende_de_bootstrap(page) -> None:
 
 
 def test_pagina_declara_la_senal_simulada(page) -> None:
-    _, css, notice_css = page.show_source(page.SIM_NAME)
+    _, css, notice_css, notice_medimos = page.show_source(page.SIM_NAME)
     assert "is-sim" in css
     assert "is-hidden" not in notice_css
+    assert "is-hidden" not in notice_medimos
+
+
+# --------------------------------------------------- como lo medimos
+
+
+def test_cuenta_cada_parpadeo_una_vez() -> None:
+    centers = [1.5, 2.6, 3.7, 4.8]
+    x = _blinks(_eeg(6, 5.0, seed=11), centers, amp_uv=150.0, sigma_s=0.08)
+    snap, _ = _feed(LiveAnalyzer(), x, 0.0)
+    assert snap.blink_count == len(centers)
+
+
+def test_parpadeos_frecuentes_no_disparan_el_umbral() -> None:
+    # 30 por minuto, el doble de lo normal: el umbral debe seguir al fondo.
+    centers = list(np.arange(1.0, 12.0, 2.0))
+    x = _blinks(_eeg(12.5, 5.0, seed=16), centers, amp_uv=150.0, sigma_s=0.08)
+    analyzer = LiveAnalyzer()
+    snap, _ = _feed(analyzer, x, 0.0)
+    assert snap.blink_count == len(centers)
+    assert analyzer.blink_threshold_uv < 0.5 * BLINK_CEIL_UV
+
+
+def test_sin_senal_lista_no_cuenta_parpadeos() -> None:
+    x = _blinks(_eeg(4, 5.0, seed=12), [1.5, 2.5], amp_uv=150.0, sigma_s=0.08)
+    snap, _ = _feed(LiveAnalyzer(), x, 0.0, ready=False)
+    assert snap.blink_count == 0
+
+
+def test_exponente_aperiodico_de_un_espectro_1_sobre_f() -> None:
+    freqs = np.arange(0.5, 100.0, 0.5)
+    f, _, log_fit = aperiodic_fit(freqs, 1.0 / freqs**1.5, (8.0, 12.0))
+    assert aperiodic_exponent(f, log_fit) == pytest.approx(1.5, abs=1e-6)
+
+
+def _history_run(x: np.ndarray, ready: bool = True) -> tuple[SessionHistory, float]:
+    analyzer = LiveAnalyzer()
+    history = SessionHistory(connected_at=0.0)
+    block = int(TICK_S * FS)
+    t = 0.0
+    for k in range(0, x.size, block):
+        t += TICK_S
+        history.record(analyzer.update(x[k : k + block], t, ready), t, ready)
+    return history, t
+
+
+def test_historial_arma_el_espectrograma_con_huecos_descartados() -> None:
+    x = _eeg(8, 10.0, seed=13)
+    t = np.arange(x.size) / FS
+    for center in np.arange(4.3, 6.5, 0.6):  # parpadeos seguidos: ventanas sin tramo limpio
+        x += 200.0 * np.exp(-0.5 * ((t - center) / 0.06) ** 2)
+    history, now = _history_run(x)
+    view = history.view(now)
+    assert view.spec_db is not None
+    assert view.spec_db.shape == (view.spec_hz.size, view.spec_t.size)
+    gaps = np.isnan(view.spec_db).all(axis=0)
+    assert gaps.any() and not gaps.all()
+    assert 0.0 < view.clean_fraction < 1.0
+    assert view.time_to_ready_s == pytest.approx(TICK_S)
+
+
+def test_historial_vacio_sin_senal_lista() -> None:
+    history, now = _history_run(_eeg(4, 10.0), ready=False)
+    view = history.view(now)
+    assert view.clean_fraction is None
+    assert view.time_to_ready_s is None
+
+
+def test_embudo_avanza_por_etapas_y_cuenta_abandonos() -> None:
+    analyzer = LiveAnalyzer()
+    funnel = StandFunnel()
+    block = int(TICK_S * FS)
+    _, t = _feed(analyzer, _eeg(3, 5.0), 0.0)
+
+    def run(seconds: float, start: float, seed: int) -> float:
+        x = _eeg(seconds, 5.0, seed=seed)
+        for k in range(0, x.size, block):
+            start += TICK_S
+            funnel.observe(analyzer.update(x[k : k + block], start, True), start)
+        return start
+
+    analyzer.start_baseline()
+    funnel.baseline_started()
+    t = run(10, t, 1)  # se abandona a media linea base
+    analyzer.start_baseline()
+    funnel.baseline_started()
+    t = run(BASELINE_S + 3 + PRACTICE_GOAL_S + 2, t, 2)
+    assert funnel.counts == FunnelCounts(started=2, completed=1, practiced=1)
+
+
+def test_vista_de_medicion_convierte_huecos_en_vacios() -> None:
+    history, now = _history_run(_eeg(6, 10.0, seed=14))
+    view = history.view(now)
+    patch = spectrogram_patch(view, 10.0)
+    assert patch is not dash.no_update
+    analyzer = LiveAnalyzer()
+    snap, _ = _feed(analyzer, _eeg(4, 10.0, seed=15), 0.0)
+    assert fit_patch(snap) is not dash.no_update
+    assert len(quality_children(None)) == 3
+
+
+def _with_trigger(prop_id: str, func, *args):
+    """Llama un callback como si `prop_id` lo hubiera disparado."""
+    from contextvars import copy_context
+
+    from dash._callback_context import context_value
+    from dash._utils import AttributeDict
+
+    def run():
+        context_value.set(AttributeDict(triggered_inputs=[{"prop_id": prop_id, "value": 1}]))
+        return func(*args)
+
+    return copy_context().run(run)
+
+
+def test_cambio_de_audiencia_devuelve_una_salida_por_output(page) -> None:
+    out = _with_trigger("mm-aud-medimos.n_clicks", page.switch_audience, None, None, 1)
+    assert len(out) == 3 * len(page.AUDIENCES) + 1
+    assert out[2] == "mm-medimos"
+    assert out[-1] == "medimos"

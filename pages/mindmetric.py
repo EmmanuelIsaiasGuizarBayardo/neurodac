@@ -36,6 +36,7 @@ from neurodac.mindmetric_analysis import (
     MetricStatus,
     Snapshot,
 )
+from neurodac.mindmetric_history import SessionHistory, StandFunnel
 from neurodac.mindmetric_panel import (
     CURRENT_WEEK,
     GROUPS,
@@ -45,6 +46,17 @@ from neurodac.mindmetric_panel import (
     simulate_pilot,
 )
 from neurodac.mindmetric_sim import MindMetricSimulatedSource
+from neurodac.mindmetric_views import (
+    fit_figure,
+    fit_patch,
+    funnel_figure,
+    measurement_view,
+    quality_children,
+    spectrogram_figure,
+    spectrogram_patch,
+    track_figure,
+    track_patch,
+)
 from neurodac.ui import render_quality
 
 dash.register_page(
@@ -70,6 +82,20 @@ TRACE_RANGE_UV = 100.0
 _analyzers: dict[str, LiveAnalyzer] = {}
 _analyzers_lock = threading.Lock()
 _pilot = simulate_pilot()
+
+#: Estado de la vista "Como lo medimos". El candado protege el analizador y el
+#: historial, porque dos callbacks los leen y escriben en hilos distintos.
+_state_lock = threading.RLock()
+_histories: dict[str, SessionHistory] = {}
+_last_snapshots: dict[str, Snapshot] = {}
+_funnel = StandFunnel()
+_funnel_shown: list = [None]
+
+AUDIENCES = ("persona", "empresa", "medimos")
+#: La vista de medicion se refresca cada 2 ciclos y el espectrograma cada 4:
+#: es la parte pesada y a ~1.6 Hz se ve fluido.
+MEASURE_EVERY = 2
+SPECTROGRAM_EVERY = 4
 
 
 def _analyzer(name: str, *, reset: bool = False) -> LiveAnalyzer:
@@ -206,7 +232,7 @@ def _header() -> html.Header:
             html.Div(
                 className="mm-switch",
                 role="group",
-                children=[_audience_button("persona", True), _audience_button("empresa", False)],
+                children=[_audience_button(key, key == "persona") for key in AUDIENCES],
             ),
             html.Div(
                 className="mm-header-end",
@@ -449,7 +475,10 @@ layout = html.Div(
     className="mm-root",
     children=[
         _header(),
-        html.Main(className="mm-main", children=[_persona_view(), _company_view()]),
+        html.Main(
+            className="mm-main",
+            children=[_persona_view(), _company_view(), measurement_view(_funnel.counts)],
+        ),
         html.Footer(
             className="mm-footer",
             children=[html.Span(text("limites")), html.Span(text("avisos", "prototipo"))],
@@ -458,6 +487,7 @@ layout = html.Div(
         dcc.Interval(id="mm-interval", interval=TICK_MS, disabled=True),
         dcc.Store(id="mm-session", data=None),
         dcc.Store(id="mm-source-kind", data="real"),
+        dcc.Store(id="mm-audience", data="persona"),
     ],
 )
 
@@ -466,23 +496,25 @@ layout = html.Div(
 
 
 @dash.callback(
-    Output("mm-view-persona", "className"),
-    Output("mm-view-empresa", "className"),
-    Output("mm-aud-persona", "className"),
-    Output("mm-aud-empresa", "className"),
-    Output("mm-aud-persona", "aria-pressed"),
-    Output("mm-aud-empresa", "aria-pressed"),
-    Input("mm-aud-persona", "n_clicks"),
-    Input("mm-aud-empresa", "n_clicks"),
+    [Output(f"mm-view-{key}", "className") for key in AUDIENCES],
+    [Output(f"mm-aud-{key}", "className") for key in AUDIENCES],
+    [Output(f"mm-aud-{key}", "aria-pressed") for key in AUDIENCES],
+    Output("mm-audience", "data"),
+    [Input(f"mm-aud-{key}", "n_clicks") for key in AUDIENCES],
     prevent_initial_call=True,
 )
-def switch_audience(_persona, _empresa):
+def switch_audience(*_clicks):
     """Cambia de audiencia en un clic, sin tocar la sesion."""
-    company = ctx.triggered_id == "mm-aud-empresa"
-    on, off = "mm-switch-option is-active", "mm-switch-option"
-    if company:
-        return "mm-persona is-hidden", "mm-empresa", off, on, "false", "true"
-    return "mm-persona", "mm-empresa is-hidden", on, off, "true", "false"
+    chosen = str(ctx.triggered_id).removeprefix("mm-aud-")
+    if chosen not in AUDIENCES:
+        chosen = "persona"
+    views = [f"mm-{key}" if key == chosen else f"mm-{key} is-hidden" for key in AUDIENCES]
+    buttons = [
+        "mm-switch-option is-active" if key == chosen else "mm-switch-option" for key in AUDIENCES
+    ]
+    pressed = ["true" if key == chosen else "false" for key in AUDIENCES]
+    # Dash aplana las listas de Output: la respuesta va plana, en el mismo orden.
+    return (*views, *buttons, *pressed, chosen)
 
 
 @dash.callback(
@@ -521,6 +553,11 @@ def choose_source(_real, _sim):
     Output("mm-gate", "className", allow_duplicate=True),
     Output("mm-trace", "figure", allow_duplicate=True),
     Output("mm-spectrum", "figure", allow_duplicate=True),
+    Output("mm-spectrogram", "figure", allow_duplicate=True),
+    Output("mm-fit", "figure", allow_duplicate=True),
+    Output("mm-track", "figure", allow_duplicate=True),
+    Output("mm-quality", "children", allow_duplicate=True),
+    Output("mm-exponent", "children", allow_duplicate=True),
     Input("mm-connect", "n_clicks"),
     Input("mm-stop", "n_clicks"),
     State("mm-source-kind", "data"),
@@ -533,7 +570,7 @@ def manage_connection(_connect, _stop, source_kind, port, current):
     op = text("operacion")
     # Sin sesion, las graficas se vacian: una senal congelada aparentaria
     # seguir en vivo.
-    idle = (visitor("desconectada"), "mm-gate", trace_figure(), spectrum_figure())
+    idle = (visitor("desconectada"), "mm-gate", *_empty_figures())
     if ctx.triggered_id == "mm-stop":
         if current:
             registry.stop(current)
@@ -551,9 +588,12 @@ def manage_connection(_connect, _stop, source_kind, port, current):
     except Exception as exc:  # noqa: BLE001
         # El mensaje del sistema operativo distingue puerto ocupado de inexistente.
         return _message(op["error"].format(error=exc), "is-danger"), True, None, *idle
-    _analyzer(name, reset=True)
+    with _state_lock:
+        _analyzer(name, reset=True)
+        _histories[name] = SessionHistory(time.monotonic())
+        _last_snapshots.pop(name, None)
     message = _message(op["conectada"].format(nombre=name), "is-ok")
-    return message, False, name, no_update, no_update, trace_figure(), spectrum_figure()
+    return message, False, name, no_update, no_update, *_empty_figures()
 
 
 @dash.callback(
@@ -566,7 +606,9 @@ def start_baseline(_clicks, name):
     """Empieza una linea base nueva para la persona que tiene la diadema."""
     if not name:
         return no_update
-    _analyzer(name).start_baseline()
+    with _state_lock:
+        _analyzer(name).start_baseline()
+        _funnel.baseline_started()
     return text("persona", "boton_repetir")
 
 
@@ -596,7 +638,14 @@ def refresh(_n, name):
 
     quality = session.quality
     samples_uv = np.asarray(session.drain(), dtype=float) * RAW_TO_UV
-    snap = _analyzer(name).update(samples_uv, time.monotonic(), quality.is_ready)
+    now = time.monotonic()
+    with _state_lock:
+        snap = _analyzer(name).update(samples_uv, now, quality.is_ready)
+        _last_snapshots[name] = snap
+        history = _histories.get(name)
+        if history is not None:
+            history.record(snap, now, quality.is_ready)
+        _funnel.observe(snap, now)
 
     gate = None if quality.is_ready else visitor(str(quality.state))
     zone_text, zone_class = _zone(snap)
@@ -628,15 +677,62 @@ def refresh(_n, name):
     Output("mm-source", "children"),
     Output("mm-source", "className"),
     Output("mm-sim-notice", "className"),
+    Output("mm-sim-notice-medimos", "className"),
     Input("mm-session", "data"),
 )
 def show_source(name):
     """La fuente se declara en pantalla; el aviso sale del nombre de la sesion."""
+    hidden = "mm-sim-notice is-hidden"
     if not name:
-        return text("fuente", "sin_fuente"), "mm-source is-off", "mm-sim-notice is-hidden"
+        return text("fuente", "sin_fuente"), "mm-source is-off", hidden, hidden
     if name == SIM_NAME:
-        return text("operacion", "simulada"), "mm-source is-sim", "mm-sim-notice"
-    return text("fuente", "en_vivo"), "mm-source is-live", "mm-sim-notice is-hidden"
+        return text("operacion", "simulada"), "mm-source is-sim", "mm-sim-notice", "mm-sim-notice"
+    return text("fuente", "en_vivo"), "mm-source is-live", hidden, hidden
+
+
+@dash.callback(
+    Output("mm-spectrogram", "figure"),
+    Output("mm-fit", "figure"),
+    Output("mm-track", "figure"),
+    Output("mm-quality", "children"),
+    Output("mm-exponent", "children"),
+    Output("mm-funnel", "figure"),
+    Input("mm-interval", "n_intervals"),
+    State("mm-session", "data"),
+    State("mm-audience", "data"),
+    prevent_initial_call=True,
+)
+def refresh_measurement(n, name, audience):
+    """Actualiza "Como lo medimos" solo cuando esta a la vista."""
+    skip = (no_update,) * 6
+    if audience != "medimos" or not name or (n or 0) % MEASURE_EVERY:
+        return skip
+    with _state_lock:
+        history = _histories.get(name)
+        snap = _last_snapshots.get(name)
+        if history is None or snap is None:
+            return skip
+        view = history.view(time.monotonic())
+        counts = _funnel.counts
+    iaf = snap.iaf_hz if _analyzer(name).has_baseline else None
+    spectrogram = spectrogram_patch(view, iaf) if n % SPECTROGRAM_EVERY == 0 else no_update
+    exponent = (
+        ""
+        if snap.exponent is None
+        else text("medimos", "exponente").format(valor=f"{snap.exponent:.2f}")
+    )
+    funnel = no_update
+    if counts != _funnel_shown[0]:
+        _funnel_shown[0] = counts
+        funnel = funnel_figure(counts)
+    return (
+        spectrogram,
+        fit_patch(snap),
+        track_patch(view),
+        quality_children(view),
+        exponent,
+        funnel,
+    )
 
 
 @dash.callback(
@@ -700,6 +796,19 @@ def _spectrum_patch(snap: Snapshot) -> object:
     patch["layout"]["shapes"][0]["x0"] = snap.iaf_hz - ALPHA_HALF_WIDTH_HZ
     patch["layout"]["shapes"][0]["x1"] = snap.iaf_hz + ALPHA_HALF_WIDTH_HZ
     return patch
+
+
+def _empty_figures() -> tuple:
+    """Figuras y textos vacios: sin sesion no se muestra senal congelada."""
+    return (
+        trace_figure(),
+        spectrum_figure(),
+        spectrogram_figure(),
+        fit_figure(),
+        track_figure(),
+        quality_children(None),
+        "",
+    )
 
 
 def _serial(port: str):

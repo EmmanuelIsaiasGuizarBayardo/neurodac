@@ -197,6 +197,35 @@ body:has(.mm-root) { overflow: hidden; }
 .mm-company-lists ul { margin: 0; padding-left: 1.1rem; }
 .mm-company-lists li { margin-bottom: 0.25rem; }
 
+/* ------------------------------------------------------- como lo medimos */
+
+.mm-medimos { display: flex; flex-direction: column; gap: 0.55rem; }
+.mm-measure-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+  gap: 0.8rem 1.4rem;
+}
+.mm-measure-grid .mm-plot { padding-bottom: 0.5rem; }
+.mm-measure-grid .mm-note { margin-bottom: 0.25rem; }
+.mm-kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.8rem; margin: 0.2rem 0 0.3rem; }
+.mm-kpi-value { font-size: 1.5rem; font-weight: 600; line-height: 1.1; color: var(--mm-ink); }
+.mm-kpi-label { font-size: 0.78rem; color: var(--mm-muted); line-height: 1.25; }
+.mm-subhead { margin-top: 0.4rem !important; }
+.mm-references {
+  display: grid;
+  grid-template-columns: auto repeat(3, minmax(0, 1fr));
+  gap: 0.2rem 1.2rem;
+  font-size: 0.74rem;
+  line-height: 1.3;
+  color: var(--mm-muted);
+}
+.mm-references-title { font-weight: 600; color: var(--mm-ink); }
+
+@media (max-width: 1100px) {
+  .mm-measure-grid { grid-template-columns: 1fr; }
+  .mm-references { grid-template-columns: 1fr; }
+}
+
 /* -------------------------------------------------------------- pie */
 
 .mm-footer {

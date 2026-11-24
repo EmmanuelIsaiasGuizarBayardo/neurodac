@@ -33,6 +33,8 @@ __all__ = [
     "MetricStatus",
     "Snapshot",
     "Zone",
+    "aperiodic_exponent",
+    "aperiodic_fit",
     "aperiodic_residual",
     "estimate_iaf",
     "exponential_smoothing",
@@ -76,8 +78,12 @@ BLINK_ORDER = 2
 BLINK_K = 4.0
 BLINK_FLOOR_UV = 40.0
 BLINK_CEIL_UV = 150.0
-#: Escala de MAD a desviacion tipica bajo normalidad.
-MAD_TO_SD = 1.4826
+#: Escala del percentil 25 de |x| a desviacion tipica bajo normalidad:
+#: P(|x| < 0.3186 sigma) = 0.25. Se usa el percentil 25 y no la MAD (percentil
+#: 50) porque con parpadeos seguidos la mitad del bufer puede ser parpadeo, y
+#: entonces la MAD describe al parpadeo y el umbral sube hasta el techo.
+LOW_QUARTILE_TO_SD = 1.0 / 0.31863936
+BLINK_REFRACTORY_S = 0.4
 
 HOLD_S = 2.0
 BASELINE_S = 30.0
@@ -172,10 +178,10 @@ def spectrum(segment: np.ndarray, fs: float = FS) -> tuple[np.ndarray, np.ndarra
     return freqs, psd
 
 
-def aperiodic_residual(
+def aperiodic_fit(
     freqs: np.ndarray, psd: np.ndarray, exclude: tuple[float, float]
-) -> tuple[np.ndarray, np.ndarray]:
-    """Resta al espectro una recta aperiodica ajustada en log-log.
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Recta aperiodica en log-log sobre `APERIODIC_RANGE_HZ`.
 
     Parameters
     ----------
@@ -187,8 +193,7 @@ def aperiodic_residual(
     Returns
     -------
     tuple of numpy.ndarray
-        Frecuencias de `APERIODIC_RANGE_HZ` y residuo en log10, es decir, la
-        parte periodica por encima (o por debajo) de la recta.
+        Frecuencias del rango, log10 del espectro y log10 de la recta.
 
     Notes
     -----
@@ -204,7 +209,27 @@ def aperiodic_residual(
     log_p = np.log10(psd[in_range] + 1e-20)
     fit_mask = ~((f >= exclude[0]) & (f <= exclude[1]))
     coef = np.polyfit(log_f[fit_mask], log_p[fit_mask], 1)
-    return f, log_p - np.polyval(coef, log_f)
+    return f, log_p, np.polyval(coef, log_f)
+
+
+def aperiodic_residual(
+    freqs: np.ndarray, psd: np.ndarray, exclude: tuple[float, float]
+) -> tuple[np.ndarray, np.ndarray]:
+    """Parte periodica: log10 del espectro menos la recta aperiodica.
+
+    Returns
+    -------
+    tuple of numpy.ndarray
+        Frecuencias de `APERIODIC_RANGE_HZ` y residuo en log10.
+    """
+    f, log_p, log_fit = aperiodic_fit(freqs, psd, exclude)
+    return f, log_p - log_fit
+
+
+def aperiodic_exponent(f: np.ndarray, log_fit: np.ndarray) -> float:
+    """Exponente de la ley de potencia 1/f^x a partir de la recta ajustada."""
+    slope = (log_fit[-1] - log_fit[0]) / (np.log10(f[-1]) - np.log10(f[0]))
+    return float(-slope)
 
 
 def periodic_band_power(f: np.ndarray, residual: np.ndarray, center_hz: float) -> float:
@@ -283,6 +308,13 @@ class Snapshot:
         True mientras se mide una linea base, aunque una ventana se descarte.
     blink_threshold_uv : float
         Umbral de parpadeo vigente; se muestra solo al personal.
+    blink_count : int
+        Parpadeos detectados desde que se creo el analizador, con senal lista.
+    fit_hz, fit_db : numpy.ndarray or None
+        Recta aperiodica del ultimo espectro util, en dB, sobre 2 a 40 Hz.
+    exponent : float or None
+        Exponente aperiodico de esa recta. Descriptivo: lo mueven el musculo y
+        el contacto, no solo el cerebro.
     iaf_hz : float
         IAF en uso (10 Hz hasta terminar la linea base).
     """
@@ -298,6 +330,10 @@ class Snapshot:
     baseline_progress: float
     baseline_active: bool
     blink_threshold_uv: float
+    blink_count: int
+    fit_hz: np.ndarray | None
+    fit_db: np.ndarray | None
+    exponent: float | None
     iaf_hz: float
 
 
@@ -324,6 +360,13 @@ class LiveAnalyzer:
         self._zi_blink: np.ndarray | None = None
         self._blink_band = np.zeros(0)
         self._blink_threshold = BLINK_FLOOR_UV
+        self._blink_count = 0
+        self._blink_prev_over = False
+        self._samples_seen = 0
+        self._last_blink_sample = -(10**9)
+        self._fit_hz: np.ndarray | None = None
+        self._fit_log: np.ndarray | None = None
+        self._exponent: float | None = None
 
         self._display_n = int(DISPLAY_S * fs)
         self._window_n = int(WINDOW_S * fs)
@@ -397,7 +440,9 @@ class LiveAnalyzer:
             True si el enlace con la diadema esta en estado listo. Mientras no
             lo este, nada que dependa de la senal avanza.
         """
-        self._append(self.filter_block(samples_uv), self.blink_band_block(samples_uv))
+        blink_band = self.blink_band_block(samples_uv)
+        self._append(self.filter_block(samples_uv), blink_band)
+        self._count_blinks(blink_band, signal_ready)
         status, zone, z = self._evaluate(now, signal_ready)
         trace_t, trace, artifact = self._display_trace()
         spectrum_hz, spectrum_db = self._display_spectrum()
@@ -413,6 +458,10 @@ class LiveAnalyzer:
             baseline_progress=min(1.0, self._baseline.collected_s / BASELINE_S),
             baseline_active=self._baseline_active,
             blink_threshold_uv=self._blink_threshold,
+            blink_count=self._blink_count,
+            fit_hz=self._fit_hz,
+            fit_db=None if self._fit_log is None else 10.0 * self._fit_log,
+            exponent=self._exponent,
             iaf_hz=self._baseline.iaf_hz,
         )
 
@@ -427,17 +476,39 @@ class LiveAnalyzer:
             np.abs(self._blink_band) > self._blink_threshold
         )
 
+    def _count_blinks(self, blink_band: np.ndarray, ready: bool) -> None:
+        """Cuenta cruces ascendentes del umbral, con un periodo refractario.
+
+        El refractario evita contar dos veces un parpadeo cuya forma de onda
+        cruza el umbral mas de una vez.
+        """
+        n = blink_band.size
+        if n == 0:
+            return
+        over = np.abs(blink_band) > self._blink_threshold
+        previous = np.concatenate(([self._blink_prev_over], over[:-1]))
+        rising = np.flatnonzero(over & ~previous)
+        refractory = int(BLINK_REFRACTORY_S * self.fs)
+        for offset in rising:
+            index = self._samples_seen + int(offset)
+            if ready and index - self._last_blink_sample > refractory:
+                self._blink_count += 1
+                self._last_blink_sample = index
+        self._blink_prev_over = bool(over[-1])
+        self._samples_seen += n
+
     def _adaptive_blink_threshold(self) -> float:
         """BLINK_K desviaciones robustas del fondo, entre el piso y el techo.
 
-        La MAD casi no se mueve con parpadeos esporadicos, que ocupan una
-        fraccion chica del bufer; por eso describe el fondo y no al parpadeo.
-        Con menos de 1 s de datos se usa el piso.
+        La desviacion sale del percentil 25 de |x|, que sigue describiendo el
+        fondo aunque hasta tres cuartas partes del bufer sean parpadeos. Con
+        menos de 1 s de datos se usa el piso.
         """
         if self._blink_band.size < int(self.fs):
             return BLINK_FLOOR_UV
         band = self._blink_band
-        robust_sd = MAD_TO_SD * float(np.median(np.abs(band - np.median(band))))
+        deviation = np.abs(band - np.median(band))
+        robust_sd = LOW_QUARTILE_TO_SD * float(np.percentile(deviation, 25))
         return float(np.clip(BLINK_K * robust_sd, BLINK_FLOOR_UV, BLINK_CEIL_UV))
 
     def _clean_mask(self) -> np.ndarray:
@@ -495,7 +566,10 @@ class LiveAnalyzer:
         self._last_psd_at = now
         iaf = self._baseline.iaf_hz
         exclude = (iaf - ALPHA_HALF_WIDTH_HZ, iaf + ALPHA_HALF_WIDTH_HZ)
-        return aperiodic_residual(freqs, self._psd, exclude)
+        f, log_p, log_fit = aperiodic_fit(freqs, self._psd, exclude)
+        self._fit_hz, self._fit_log = f, log_fit
+        self._exponent = aperiodic_exponent(f, log_fit)
+        return f, log_p - log_fit
 
     def _hold(self, now: float) -> tuple[MetricStatus, Zone | None, float | None]:
         """Sin ventana util: sostiene el ultimo valor un rato y luego pausa."""

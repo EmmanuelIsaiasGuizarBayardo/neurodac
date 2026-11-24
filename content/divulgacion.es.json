@@ -216,7 +216,8 @@
     },
     "vistas": {
       "persona": "Tu sesión",
-      "empresa": "Lo que ve la empresa"
+      "empresa": "Lo que ve la empresa",
+      "medimos": "Cómo lo medimos"
     },
     "fuente": {
       "en_vivo": "En vivo",
@@ -302,13 +303,44 @@
       "conectar": "Conectar",
       "detener": "Detener",
       "cerrar": "Cerrar",
-    "falta_puerto": "Indica el puerto serial, por ejemplo COM5.",
+      "falta_puerto": "Indica el puerto serial, por ejemplo COM5.",
       "conectada": "Sesión activa en {nombre}.",
       "detenida": "Detenido.",
       "error": "No se pudo conectar: {error}",
       "iaf": "IAF en uso: {iaf} Hz. Sin pico claro en la línea base se usa 10 Hz.",
-    "umbral_parpadeo": "Umbral de parpadeo: {umbral} µV en 0.5 a 6 Hz. Se adapta al fondo de cada persona, entre 40 y 150 µV.",
+      "umbral_parpadeo": "Umbral de parpadeo: {umbral} µV en 0.5 a 6 Hz. Se adapta al fondo de cada persona, entre 40 y 150 µV.",
       "guion_simulado": "La señal simulada cierra los ojos a los 50 s de conectar, y después 12 s de cada 40. Pide la línea base en cuanto la señal esté lista."
+    },
+    "medimos": {
+      "titulo": "Cómo lo medimos, en vivo",
+      "subtitulo": "Todo se calcula en este momento con la señal de la diadema y nada se guarda.",
+      "espectrograma_titulo": "Espectrograma del último minuto",
+      "espectrograma_nota": "Cada columna es un instante. Con los ojos cerrados se aclara tu franja *alfa* (línea punteada). En gris, momentos descartados por parpadeo o movimiento.",
+      "eje_hace": "segundos atrás",
+      "curva_titulo": "La oscilación, separada del fondo",
+      "curva_nota": "Punteado, el fondo 1/f de tu señal. Sombreado, tu ritmo *alfa* por encima de ese fondo: eso medimos (Donoghue et al., 2020).",
+      "exponente": "Exponente aperiódico: {valor}. Es descriptivo: también lo mueven el músculo y el contacto.",
+      "historial_titulo": "Tu sesión, comparada contigo",
+      "historial_nota": "Franja azul: tu zona habitual. Zonas grises: líneas base.",
+      "calidad_titulo": "Calidad de la señal",
+      "calidad_nota": "Si la señal no sirve, lo decimos y no la usamos.",
+      "limpio": "del último minuto con señal útil",
+      "parpadeos": "parpadeos detectados y excluidos",
+      "tiempo_senal": "para tener señal útil al conectar",
+      "sin_dato": "sin dato",
+      "embudo_titulo": "Embudo de este stand, hoy",
+      "embudo_nota": "Solo conteos, sin datos de las personas, como se reporta un estudio de factibilidad en una exhibición (Baumgartner et al., 2026).",
+      "embudo_etapas": {
+        "iniciada": "Línea base iniciada",
+        "completa": "Línea base completa",
+        "practica": "Un minuto de práctica"
+      },
+      "respaldo_titulo": "En qué nos basamos",
+      "respaldo": [
+        "Donoghue et al. (2020), *Nature Neuroscience*: oscilación separada del fondo aperiódico.",
+        "Baumgartner et al. (2026), *JMIR Neurotechnology*: EEG de consumo en una exhibición, con calidad revisada y línea base de 30 s.",
+        "Treves et al. (2025), *JMIR*: el beneficio del EEG de consumo aún es modesto; medimos antes de prometer."
+      ]
     }
   }
 }
