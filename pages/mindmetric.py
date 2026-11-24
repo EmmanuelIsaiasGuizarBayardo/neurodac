@@ -602,7 +602,11 @@ def refresh(_n, name):
     zone_text, zone_class = _zone(snap)
     needle_class, needle_style = _needle(snap)
     progress_class = "mm-progress" if snap.baseline_active else "mm-progress is-hidden"
-    iaf_text = text("operacion", "iaf").format(iaf=f"{snap.iaf_hz:.1f}")
+    iaf_text = [
+        text("operacion", "iaf").format(iaf=f"{snap.iaf_hz:.1f}"),
+        html.Br(),
+        text("operacion", "umbral_parpadeo").format(umbral=f"{snap.blink_threshold_uv:.0f}"),
+    ]
     return (
         _trace_patch(snap),
         _spectrum_patch(snap),

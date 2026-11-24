@@ -307,6 +307,7 @@
       "detenida": "Detenido.",
       "error": "No se pudo conectar: {error}",
       "iaf": "IAF en uso: {iaf} Hz. Sin pico claro en la línea base se usa 10 Hz.",
+    "umbral_parpadeo": "Umbral de parpadeo: {umbral} µV en 0.5 a 6 Hz. Se adapta al fondo de cada persona, entre 40 y 150 µV.",
       "guion_simulado": "La señal simulada cierra los ojos a los 50 s de conectar, y después 12 s de cada 40. Pide la línea base en cuanto la señal esté lista."
     }
   }

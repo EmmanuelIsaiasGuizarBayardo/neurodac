@@ -18,6 +18,8 @@ import pytest
 from neurodac.content import mindmetric as text
 from neurodac.mindmetric_analysis import (
     BASELINE_S,
+    BLINK_CEIL_UV,
+    BLINK_FLOOR_UV,
     FS,
     HOLD_S,
     IAF_DEFAULT_HZ,
@@ -190,6 +192,59 @@ def test_artefacto_sostiene_y_luego_pausa() -> None:
         statuses.append(analyzer.update(noisy[k : k + block], t, True).status)
     assert MetricStatus.HOLD in statuses
     assert statuses[-1] is MetricStatus.PAUSED
+
+
+def _blinks(x: np.ndarray, centers_s: list[float], amp_uv: float, sigma_s: float) -> np.ndarray:
+    """Suma parpadeos gaussianos de amplitud y duracion conocidas."""
+    t = np.arange(x.size) / FS
+    out = x.copy()
+    for center in centers_s:
+        out += amp_uv * np.exp(-0.5 * ((t - center) / sigma_s) ** 2)
+    return out
+
+
+def _marked_at(snap, total_s: float, centers_s: list[float]) -> list[bool]:
+    """Si la traza mostrada marca artefacto en el centro de cada parpadeo."""
+    marked = []
+    for center in centers_s:
+        idx = int(np.argmin(np.abs(snap.trace_t - (center - total_s))))
+        marked.append(not np.isnan(snap.trace_artifact_uv[idx]))
+    return marked
+
+
+def test_parpadeo_suave_se_marca_aunque_el_filtro_lo_encoja() -> None:
+    total, centers = 6.0, [2.5, 3.6, 4.8]
+    x = _blinks(_eeg(total, 5.0, seed=5), centers, amp_uv=100.0, sigma_s=0.08)
+    # El motivo del cambio: en 1 a 45 Hz este parpadeo ya no llega a 100 uV.
+    assert np.abs(LiveAnalyzer().filter_block(x)).max() < 100.0
+    snap, _ = _feed(LiveAnalyzer(), x, 0.0)
+    assert all(_marked_at(snap, total, centers))
+
+
+def test_fondo_limpio_con_alfa_no_se_marca() -> None:
+    analyzer = LiveAnalyzer()
+    snap, _ = _feed(analyzer, _eeg(6, 15.0, seed=6), 0.0)
+    assert analyzer.blink_threshold_uv == BLINK_FLOOR_UV
+    assert np.isnan(snap.trace_artifact_uv).mean() > 0.98
+
+
+def test_fondo_ruidoso_sube_el_umbral_sin_pasar_el_techo() -> None:
+    rng = np.random.default_rng(8)
+    # Fondo lento y grande, como un electrodo seco con mal contacto.
+    noisy = np.cumsum(rng.standard_normal(int(6 * FS))) * 2.0
+    total, centers = 6.0, [3.0, 4.5]
+    x = _blinks(noisy - noisy.mean(), centers, amp_uv=400.0, sigma_s=0.08)
+    analyzer = LiveAnalyzer()
+    snap, _ = _feed(analyzer, x, 0.0)
+    assert BLINK_FLOOR_UV < analyzer.blink_threshold_uv <= BLINK_CEIL_UV
+    assert all(_marked_at(snap, total, centers))
+
+
+def test_simulador_marca_sus_parpadeos() -> None:
+    source = MindMetricSimulatedSource()
+    x = np.array([source.sample_uv((i + 1) / FS) for i in range(int(20 * FS))])
+    snap, _ = _feed(LiveAnalyzer(), x, 0.0)
+    assert not np.isnan(snap.trace_artifact_uv).all()
 
 
 def test_tramo_limpio_mas_largo() -> None:

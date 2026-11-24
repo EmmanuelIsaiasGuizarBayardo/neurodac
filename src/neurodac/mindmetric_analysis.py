@@ -14,6 +14,8 @@ Simplificaciones declaradas frente al plan original:
 - El ajuste aperiodico es una recta en log-log que excluye la banda alfa,
   no `specparam`.
 - La IAF sale de la linea base con ojos abiertos; sin pico claro se usa 10 Hz.
+- Los parpadeos se detectan con un umbral adaptativo en 0.5 a 6 Hz, no con el
+  detector de artefactos del plan.
 """
 
 from __future__ import annotations
@@ -58,9 +60,24 @@ NFFT = 1024
 MIN_CLEAN_S = 1.0
 SMOOTHING_TAU_S = 0.5
 
-#: En Fp1 un parpadeo supera con holgura 100 uV; el EEG filtrado rara vez.
+#: Criterio de banda ancha (1 a 45 Hz): movimientos y rafagas grandes.
 ARTIFACT_UV = 100.0
 ARTIFACT_PAD_S = 0.2
+
+#: Detector de parpadeos, aparte del filtro de 1 a 45 Hz. Ese filtro deja un
+#: parpadeo de 150 uV en 64 a 96 uV segun su duracion, asi que el umbral de
+#: 100 uV se perdia los parpadeos suaves. En 0.5 a 6 Hz el parpadeo conserva mas
+#: amplitud y la alfa de ojos cerrados queda fuera de la banda.
+BLINK_BAND_HZ = (0.5, 6.0)
+BLINK_ORDER = 2
+#: Umbral adaptativo: BLINK_K desviaciones robustas del fondo de la propia
+#: persona, acotado entre un piso y un techo. El piso evita marcar fondo limpio;
+#: el techo garantiza que un parpadeo grande se marque aunque el fondo sea ruidoso.
+BLINK_K = 4.0
+BLINK_FLOOR_UV = 40.0
+BLINK_CEIL_UV = 150.0
+#: Escala de MAD a desviacion tipica bajo normalidad.
+MAD_TO_SD = 1.4826
 
 HOLD_S = 2.0
 BASELINE_S = 30.0
@@ -264,6 +281,8 @@ class Snapshot:
         Avance de la linea base, de 0 a 1.
     baseline_active : bool
         True mientras se mide una linea base, aunque una ventana se descarte.
+    blink_threshold_uv : float
+        Umbral de parpadeo vigente; se muestra solo al personal.
     iaf_hz : float
         IAF en uso (10 Hz hasta terminar la linea base).
     """
@@ -278,6 +297,7 @@ class Snapshot:
     z_display: float | None
     baseline_progress: float
     baseline_active: bool
+    blink_threshold_uv: float
     iaf_hz: float
 
 
@@ -298,6 +318,12 @@ class LiveAnalyzer:
         b, a = signal.iirnotch(NOTCH_HZ, NOTCH_Q, fs=fs)
         self._sos = np.vstack([bandpass, signal.tf2sos(b, a)])
         self._zi: np.ndarray | None = None
+        self._sos_blink = signal.butter(
+            BLINK_ORDER, BLINK_BAND_HZ, btype="bandpass", fs=fs, output="sos"
+        )
+        self._zi_blink: np.ndarray | None = None
+        self._blink_band = np.zeros(0)
+        self._blink_threshold = BLINK_FLOOR_UV
 
         self._display_n = int(DISPLAY_S * fs)
         self._window_n = int(WINDOW_S * fs)
@@ -343,6 +369,21 @@ class LiveAnalyzer:
         y, self._zi = signal.sosfilt(self._sos, x, zi=self._zi)
         return y
 
+    def blink_band_block(self, samples_uv: np.ndarray) -> np.ndarray:
+        """Filtra un bloque en la banda del detector de parpadeos, con estado."""
+        x = np.asarray(samples_uv, dtype=float)
+        if x.size == 0:
+            return x
+        if self._zi_blink is None:
+            self._zi_blink = signal.sosfilt_zi(self._sos_blink) * x[0]
+        y, self._zi_blink = signal.sosfilt(self._sos_blink, x, zi=self._zi_blink)
+        return y
+
+    @property
+    def blink_threshold_uv(self) -> float:
+        """Umbral de parpadeo vigente, en uV sobre la banda de 0.5 a 6 Hz."""
+        return self._blink_threshold
+
     def update(self, samples_uv: np.ndarray, now: float, signal_ready: bool) -> Snapshot:
         """Incorpora un bloque y devuelve lo que hay que mostrar.
 
@@ -356,7 +397,7 @@ class LiveAnalyzer:
             True si el enlace con la diadema esta en estado listo. Mientras no
             lo este, nada que dependa de la senal avanza.
         """
-        self._append(self.filter_block(samples_uv))
+        self._append(self.filter_block(samples_uv), self.blink_band_block(samples_uv))
         status, zone, z = self._evaluate(now, signal_ready)
         trace_t, trace, artifact = self._display_trace()
         spectrum_hz, spectrum_db = self._display_spectrum()
@@ -371,15 +412,33 @@ class LiveAnalyzer:
             z_display=None if z is None else float(np.clip(z, -Z_DISPLAY_LIMIT, Z_DISPLAY_LIMIT)),
             baseline_progress=min(1.0, self._baseline.collected_s / BASELINE_S),
             baseline_active=self._baseline_active,
+            blink_threshold_uv=self._blink_threshold,
             iaf_hz=self._baseline.iaf_hz,
         )
 
     # ----------------------------------------------------------- internos
 
-    def _append(self, filtered: np.ndarray) -> None:
+    def _append(self, filtered: np.ndarray, blink_band: np.ndarray) -> None:
         keep = max(self._display_n, self._window_n) + self._pad_n
         self._filtered = np.concatenate([self._filtered, filtered])[-keep:]
-        self._over = np.abs(self._filtered) > ARTIFACT_UV
+        self._blink_band = np.concatenate([self._blink_band, blink_band])[-keep:]
+        self._blink_threshold = self._adaptive_blink_threshold()
+        self._over = (np.abs(self._filtered) > ARTIFACT_UV) | (
+            np.abs(self._blink_band) > self._blink_threshold
+        )
+
+    def _adaptive_blink_threshold(self) -> float:
+        """BLINK_K desviaciones robustas del fondo, entre el piso y el techo.
+
+        La MAD casi no se mueve con parpadeos esporadicos, que ocupan una
+        fraccion chica del bufer; por eso describe el fondo y no al parpadeo.
+        Con menos de 1 s de datos se usa el piso.
+        """
+        if self._blink_band.size < int(self.fs):
+            return BLINK_FLOOR_UV
+        band = self._blink_band
+        robust_sd = MAD_TO_SD * float(np.median(np.abs(band - np.median(band))))
+        return float(np.clip(BLINK_K * robust_sd, BLINK_FLOOR_UV, BLINK_CEIL_UV))
 
     def _clean_mask(self) -> np.ndarray:
         """Muestras sin artefacto, con margen alrededor de cada excedencia."""
