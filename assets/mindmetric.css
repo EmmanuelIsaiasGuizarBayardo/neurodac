@@ -197,6 +197,143 @@ body:has(.mm-root) { overflow: hidden; }
 .mm-company-lists ul { margin: 0; padding-left: 1.1rem; }
 .mm-company-lists li { margin-bottom: 0.25rem; }
 
+/* ------------------------------------------- tramos descartados del análisis */
+
+/* Lo que se dibuja no se recorta: si el análisis lo descartó, la tarjeta lleva
+   un marco rojo ligero y un aviso breve. */
+.mm-plot { position: relative; }
+.mm-plot.is-excluded { box-shadow: inset 0 0 0 2px rgba(228, 37, 54, 0.55); }
+.mm-excluded-badge {
+  display: none;
+  position: absolute;
+  top: 0.6rem;
+  right: 0.8rem;
+  font-size: 0.75rem;
+  color: #a3121f;
+  background: rgba(228, 37, 54, 0.08);
+  border: 1px solid rgba(228, 37, 54, 0.45);
+  border-radius: 3px;
+  padding: 0.1rem 0.45rem;
+}
+.mm-plot.is-excluded .mm-excluded-badge { display: block; }
+
+/* -------------------------------------------------- para tu organización */
+
+.mm-empresa { display: flex; flex-direction: column; gap: 0.55rem; }
+.mm-section-title { margin: 0.2rem 0 0 !important; }
+
+.mm-flow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 30px minmax(0, 1fr) 30px minmax(0, 1fr) 30px minmax(0, 1fr) 30px minmax(0, 1fr);
+  align-items: stretch;
+}
+.mm-stage {
+  min-width: 0;
+  background: var(--mm-surface);
+  border: 1px solid var(--mm-rule);
+  border-radius: 6px;
+  padding: 0.5rem 0.7rem 0.45rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+.mm-stage .js-plotly-plot, .mm-stage .dash-graph { width: 100% !important; }
+.mm-stage h3 { margin: 0 !important; font-size: 0.95rem; }
+.mm-stage .mm-note { margin: 0; font-size: 0.78rem; flex: 1; }
+.mm-stage-num {
+  width: 1.55rem;
+  height: 1.55rem;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--mm-brand);
+  border: 1.5px solid var(--mm-brand);
+}
+.mm-stage-live {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--mm-ink);
+  min-height: 2.1em;
+  display: flex;
+  align-items: flex-end;
+}
+.mm-flow-link { position: relative; align-self: center; height: 2px; background: var(--mm-rule); overflow: visible; }
+.mm-flow-link span {
+  position: absolute;
+  top: -3px;
+  left: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--mm-trace);
+  opacity: 0;
+}
+
+/* El flujo solo se anima cuando de verdad llegan datos. */
+.mm-flow.is-live .mm-flow-link span { animation: mm-travel 1.5s linear infinite; }
+.mm-flow.is-live .mm-flow-link span:nth-child(2) { animation-delay: 0.5s; }
+.mm-flow.is-live .mm-flow-link span:nth-child(3) { animation-delay: 1s; }
+.mm-flow.is-live .mm-stage-num { animation: mm-pulse 2.5s ease-in-out infinite; animation-delay: var(--mm-stage-delay); }
+@keyframes mm-travel {
+  0% { left: 0; opacity: 0; }
+  15% { opacity: 1; }
+  85% { opacity: 1; }
+  100% { left: calc(100% - 8px); opacity: 0; }
+}
+@keyframes mm-pulse {
+  0%, 30%, 100% { background: transparent; color: var(--mm-brand); }
+  10%, 20% { background: var(--mm-brand); color: #fff; }
+}
+
+.mm-apps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+.mm-app {
+  background: var(--mm-surface);
+  border: 1px solid var(--mm-rule);
+  border-radius: 6px;
+  padding: 0.45rem 0.7rem;
+  animation: mm-spotlight var(--mm-spotlight-cycle, 24s) ease-in-out infinite;
+}
+.mm-app h3 { margin: 0.2rem 0 0.1rem !important; font-size: 0.9rem; }
+.mm-app .mm-note { margin: 0; font-size: 0.78rem; }
+.mm-app-status { font-size: 0.7rem; font-weight: 600; padding: 0.08rem 0.45rem; border-radius: 3px; }
+.mm-app-status.is-demo { color: #11734b; background: #e3f4ec; }
+.mm-app-status.is-hoy { color: #6a3d9a; background: #f0e8f8; }
+.mm-app-status.is-medida { color: var(--mm-brand); background: #e4eef6; }
+@keyframes mm-spotlight {
+  0%, 11% { border-color: var(--mm-brand); box-shadow: 0 0 0 1px var(--mm-brand); transform: translateY(-2px); }
+  13%, 100% { border-color: var(--mm-rule); box-shadow: none; transform: none; }
+}
+
+.mm-privacy {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 4fr) minmax(0, 4fr);
+  gap: 1rem;
+  align-items: start;
+  background: var(--mm-surface);
+  border: 1px solid var(--mm-rule);
+  border-radius: 6px;
+  padding: 0.7rem 1rem;
+}
+.mm-privacy h3 { margin: 0 0 0.2rem !important; }
+.mm-privacy .mm-sim-notice { margin-top: 0.35rem; font-size: 0.8rem; }
+.mm-privacy .mm-group-picker { margin: 0; }
+.mm-privacy .mm-figure { font-size: 1.6rem; margin: 0.1rem 0 0.2rem; }
+.mm-privacy .mm-figure.is-range, .mm-privacy .mm-figure.is-suppressed { font-size: 1.15rem; }
+.mm-privacy .mm-rule { font-size: 0.8rem; }
+
+@media (max-width: 1100px) {
+  .mm-flow { grid-template-columns: 1fr; }
+  .mm-flow-link { display: none; }
+  .mm-apps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .mm-privacy { grid-template-columns: 1fr; }
+}
+
 /* ------------------------------------------------------- como lo medimos */
 
 .mm-medimos { display: flex; flex-direction: column; gap: 0.55rem; }
@@ -306,4 +443,6 @@ body:has(.mm-root) { overflow: hidden; }
 
 @media (prefers-reduced-motion: reduce) {
   .mm-gauge-needle, .mm-progress-fill, .mm-switch-option, .mm-op { transition: none; }
+  .mm-app, .mm-flow.is-live .mm-flow-link span, .mm-flow.is-live .mm-stage-num { animation: none; }
+  .mm-flow.is-live .mm-flow-link span { opacity: 1; left: calc(50% - 4px); }
 }

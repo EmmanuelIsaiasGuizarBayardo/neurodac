@@ -28,6 +28,7 @@ from .mindmetric_history import SPECTROGRAM_S, TRACK_S, FunnelCounts, HistoryVie
 
 __all__ = [
     "BATLOW",
+    "excluded_shapes",
     "fit_figure",
     "fit_patch",
     "funnel_figure",
@@ -45,9 +46,32 @@ INK = "#142328"
 MUTED = "#52646a"
 RULE = "#d9e0de"
 ZONE_FILL = "rgba(87, 144, 252, 0.14)"
-#: Fondo del espectrograma: las columnas descartadas se ven grises, no blancas,
-#: para que se lean como excluidas y no como una falla del dibujo.
+#: Fondo del espectrograma mientras aún no hay un minuto de datos.
 GAP_COLOR = "#dfe5e3"
+#: Marco de los tramos que el análisis descarta: se ven, pero no se usan.
+EXCLUDED_LINE = "rgba(228, 37, 54, 0.85)"
+EXCLUDED_FILL = "rgba(228, 37, 54, 0.10)"
+
+
+def excluded_shapes(spans: list[tuple[float, float]], y_ref: str = "paper") -> list[dict]:
+    """Marcos rojos ligeros sobre los tramos descartados."""
+    return [
+        {
+            "type": "rect",
+            "xref": "x",
+            "yref": y_ref,
+            "x0": start,
+            "x1": end,
+            "y0": 0,
+            "y1": 1,
+            "fillcolor": EXCLUDED_FILL,
+            "line": {"color": EXCLUDED_LINE, "width": 1.2},
+            "layer": "above",
+        }
+        for start, end in spans
+    ]
+
+
 BASELINE_FILL = "rgba(82, 100, 106, 0.12)"
 
 #: figuras_cientificas.sequential() (batlow), muestreado en 11 puntos.
@@ -143,6 +167,7 @@ def spectrogram_patch(view: HistoryView, iaf_hz: float | None) -> object:
     if iaf_hz is not None:
         patch["data"][1]["x"] = [-SPECTROGRAM_S, 0]
         patch["data"][1]["y"] = [iaf_hz, iaf_hz]
+    patch["layout"]["shapes"] = excluded_shapes(view.excluded_spans)
     return patch
 
 
@@ -264,7 +289,9 @@ def track_patch(view: HistoryView) -> Patch:
     patch = Patch()
     patch["data"][0]["x"] = _rounded(view.track_t)
     patch["data"][0]["y"] = _rounded(view.track_z)
-    patch["layout"]["shapes"] = _track_shapes(view.baseline_spans)
+    patch["layout"]["shapes"] = _track_shapes(view.baseline_spans) + excluded_shapes(
+        [s for s in view.excluded_spans if s[1] > -TRACK_S]
+    )
     return patch
 
 
@@ -342,11 +369,14 @@ def _graph(component_id: str, figure: go.Figure, height: str) -> dcc.Graph:
     )
 
 
-def _card(title: str, note: str, *children) -> html.Div:
-    return html.Div(
-        className="mm-plot",
-        children=[html.H3(title), html.P(render(note), className="mm-note"), *children],
-    )
+def _card(title: str, note: str, *children, card_id: str | None = None) -> html.Div:
+    content = [html.H3(title), html.P(render(note), className="mm-note"), *children]
+    extra = {}
+    if card_id:
+        # El aviso solo se ve cuando la tarjeta trae la clase is-excluded.
+        content.append(html.Div(text("avisos", "excluida"), className="mm-excluded-badge"))
+        extra["id"] = card_id
+    return html.Div(className="mm-plot", children=content, **extra)
 
 
 def measurement_view(funnel: FunnelCounts) -> html.Section:
@@ -384,6 +414,7 @@ def measurement_view(funnel: FunnelCounts) -> html.Section:
                         text("medimos", "curva_nota"),
                         _graph("mm-fit", fit_figure(), "17vh"),
                         html.P(id="mm-exponent", className="mm-note"),
+                        card_id="mm-fit-card",
                     ),
                     _card(
                         text("medimos", "historial_titulo"),

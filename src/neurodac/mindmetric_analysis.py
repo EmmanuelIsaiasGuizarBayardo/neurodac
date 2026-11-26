@@ -315,6 +315,13 @@ class Snapshot:
     exponent : float or None
         Exponente aperiodico de esa recta. Descriptivo: lo mueven el musculo y
         el contacto, no solo el cerebro.
+    window_used : bool
+        True si la ventana de este instante entro al analisis; False si se
+        descarto por parpadeo, movimiento o falta de senal.
+    display_spectrum_db : numpy.ndarray or None
+        Espectro de la ventana completa, con artefactos incluidos, en dB y en
+        las frecuencias de `spectrum_hz`. Solo para dibujar: lo que se ve no se
+        recorta, y lo que no se usa se marca aparte.
     iaf_hz : float
         IAF en uso (10 Hz hasta terminar la linea base).
     """
@@ -334,6 +341,8 @@ class Snapshot:
     fit_hz: np.ndarray | None
     fit_db: np.ndarray | None
     exponent: float | None
+    window_used: bool
+    display_spectrum_db: np.ndarray | None
     iaf_hz: float
 
 
@@ -367,6 +376,10 @@ class LiveAnalyzer:
         self._fit_hz: np.ndarray | None = None
         self._fit_log: np.ndarray | None = None
         self._exponent: float | None = None
+        self._window_used = False
+        self._display_psd: np.ndarray | None = None
+        self._display_freqs: np.ndarray | None = None
+        self._last_display_at: float | None = None
 
         self._display_n = int(DISPLAY_S * fs)
         self._window_n = int(WINDOW_S * fs)
@@ -443,6 +456,7 @@ class LiveAnalyzer:
         blink_band = self.blink_band_block(samples_uv)
         self._append(self.filter_block(samples_uv), blink_band)
         self._count_blinks(blink_band, signal_ready)
+        self._update_display_psd(now)
         status, zone, z = self._evaluate(now, signal_ready)
         trace_t, trace, artifact = self._display_trace()
         spectrum_hz, spectrum_db = self._display_spectrum()
@@ -462,6 +476,8 @@ class LiveAnalyzer:
             fit_hz=self._fit_hz,
             fit_db=None if self._fit_log is None else 10.0 * self._fit_log,
             exponent=self._exponent,
+            window_used=self._window_used,
+            display_spectrum_db=self._display_db(),
             iaf_hz=self._baseline.iaf_hz,
         )
 
@@ -520,6 +536,7 @@ class LiveAnalyzer:
         return ~dilated
 
     def _evaluate(self, now: float, ready: bool) -> tuple[MetricStatus, Zone | None, float | None]:
+        self._window_used = False
         if not ready:
             return MetricStatus.WAITING_SIGNAL, None, None
         if self._filtered.size < self._window_n:
@@ -529,6 +546,7 @@ class LiveAnalyzer:
         if residual is None:
             return self._hold(now)
         f, res = residual
+        self._window_used = True
         self._last_good_at = now
 
         if self._baseline_active and not self._baseline.done:
@@ -612,6 +630,27 @@ class LiveAnalyzer:
         self._baseline_active = False
         self._last_baseline_at = None
 
+    def _update_display_psd(self, now: float) -> None:
+        """Espectro de la ventana completa, suavizado igual que el del analisis."""
+        if self._filtered.size < self._window_n:
+            return
+        freqs, psd = spectrum(self._filtered[-self._window_n :], self.fs)
+        if self._display_psd is None or self._last_display_at is None:
+            self._display_psd = psd
+        else:
+            dt = max(0.0, now - self._last_display_at)
+            weight = 1.0 - np.exp(-dt / SMOOTHING_TAU_S)
+            self._display_psd = (1.0 - weight) * self._display_psd + weight * psd
+        self._display_freqs = freqs
+        self._last_display_at = now
+
+    def _display_db(self) -> np.ndarray | None:
+        if self._display_psd is None or self._display_freqs is None:
+            return None
+        lo, hi = SPECTRUM_DISPLAY_HZ
+        band = (self._display_freqs >= lo) & (self._display_freqs <= hi)
+        return 10.0 * np.log10(self._display_psd[band] + 1e-20)
+
     def _display_trace(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         data = self._filtered[-self._display_n :]
         clean = self._clean_mask()[-self._display_n :]
@@ -624,7 +663,11 @@ class LiveAnalyzer:
 
     def _display_spectrum(self) -> tuple[np.ndarray | None, np.ndarray | None]:
         if self._psd is None or self._freqs is None:
-            return None, None
+            if self._display_freqs is None:
+                return None, None
+            lo, hi = SPECTRUM_DISPLAY_HZ
+            band = (self._display_freqs >= lo) & (self._display_freqs <= hi)
+            return self._display_freqs[band], None
         lo, hi = SPECTRUM_DISPLAY_HZ
         band = (self._freqs >= lo) & (self._freqs <= hi)
         return self._freqs[band], 10.0 * np.log10(self._psd[band] + 1e-20)

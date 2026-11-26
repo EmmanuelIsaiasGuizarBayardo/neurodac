@@ -40,7 +40,6 @@ from neurodac.mindmetric_history import SessionHistory, StandFunnel
 from neurodac.mindmetric_panel import (
     CURRENT_WEEK,
     GROUPS,
-    PILOT_WEEKS,
     ReportKind,
     report,
     simulate_pilot,
@@ -92,6 +91,9 @@ _funnel = StandFunnel()
 _funnel_shown: list = [None]
 
 AUDIENCES = ("persona", "empresa", "medimos")
+#: Segundos que cada aplicación queda resaltada en la vista para
+#: organizaciones. Es solo CSS: no hay callback.
+APP_SPOTLIGHT_S = 3
 #: La vista de medicion se refresca cada 2 ciclos y el espectrograma cada 4:
 #: es la parte pesada y a ~1.6 Hz se ve fluido.
 MEASURE_EVERY = 2
@@ -163,36 +165,19 @@ def spectrum_figure() -> go.Figure:
     return figure
 
 
-def trend_figure() -> go.Figure:
-    """Participacion semanal de todo el piloto, ya con las reglas aplicadas."""
-    reports = _pilot.weekly_report(GROUPS[0].key)
-    weeks = list(range(1, CURRENT_WEEK + 1))
-    values = [r.percent for r in reports]
-    axis = {"gridcolor": RULE, "zeroline": False, "fixedrange": True}
+def spark_figure() -> go.Figure:
+    """Traza mínima de los últimos 2 s, para la etapa "Señal" del flujo."""
+    hidden = {"visible": False, "fixedrange": True}
     return go.Figure(
-        data=[
-            go.Scatter(
-                x=weeks,
-                y=values,
-                mode="lines+markers",
-                line={"color": TRACE_COLOR, "width": 2},
-                marker={"size": 7},
-                hovertemplate="%{y} %<extra></extra>",
-            )
-        ],
-        layout=_base_layout(
-            xaxis={
-                **axis,
-                "range": [0.5, PILOT_WEEKS + 0.5],
-                "dtick": 1,
-                "title": {"text": text("empresa", "semana")},
-            },
-            yaxis={
-                **axis,
-                "range": [0, 105],
-                "dtick": 20,
-                "title": {"text": text("empresa", "participacion_eje")},
-            },
+        data=[go.Scatter(x=[], y=[], mode="lines", line={"color": TRACE_COLOR, "width": 1.2})],
+        layout=go.Layout(
+            margin={"t": 0, "l": 0, "r": 0, "b": 0},
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            showlegend=False,
+            uirevision="mm-spark",
+            xaxis={**hidden, "range": [-2, 0]},
+            yaxis={**hidden, "range": [-TRACE_RANGE_UV, TRACE_RANGE_UV]},
         ),
     )
 
@@ -201,8 +186,8 @@ def _graph(component_id: str, figure: go.Figure, height: str) -> dcc.Graph:
     return dcc.Graph(
         id=component_id,
         figure=figure,
-        config={"displayModeBar": False, "staticPlot": True},
-        style={"height": height},
+        config={"displayModeBar": False, "staticPlot": True, "responsive": True},
+        style={"height": height, "width": "100%"},
     )
 
 
@@ -273,11 +258,13 @@ def _gauge() -> html.Div:
     )
 
 
-def _plot_card(title: str, note: str, graph: dcc.Graph) -> html.Div:
-    return html.Div(
-        className="mm-plot",
-        children=[html.H2(title), html.P(render(note), className="mm-note"), graph],
-    )
+def _plot_card(title: str, note: str, graph: dcc.Graph, card_id: str | None = None) -> html.Div:
+    children = [html.H2(title), html.P(render(note), className="mm-note"), graph]
+    if card_id:
+        # El aviso solo se ve cuando la tarjeta trae la clase is-excluded.
+        children.append(html.Div(text("avisos", "excluida"), className="mm-excluded-badge"))
+    extra = {"id": card_id} if card_id else {}
+    return html.Div(className="mm-plot", children=children, **extra)
 
 
 def _persona_view() -> html.Section:
@@ -298,6 +285,7 @@ def _persona_view() -> html.Section:
                         text("persona", "espectro_titulo"),
                         text("persona", "espectro_nota"),
                         _graph("mm-spectrum", spectrum_figure(), "22vh"),
+                        card_id="mm-spectrum-card",
                     ),
                 ],
             ),
@@ -334,8 +322,51 @@ def _group_button(key: str, label: str, active: bool) -> html.Button:
     )
 
 
+def _stage(key: str, number: int, live: object) -> html.Div:
+    stage = text("organizacion", "etapas", key)
+    return html.Div(
+        className="mm-stage",
+        style={"--mm-stage-delay": f"{(number - 1) * 0.5}s"},
+        children=[
+            html.Div(str(number), className="mm-stage-num"),
+            html.H3(stage["titulo"]),
+            html.P(stage["texto"], className="mm-note"),
+            live,
+        ],
+    )
+
+
+def _flow_link() -> html.Div:
+    return html.Div(className="mm-flow-link", children=[html.Span(), html.Span(), html.Span()])
+
+
+def _app_card(key: str, index: int) -> html.Div:
+    app = text("organizacion", "apps", key)
+    return html.Div(
+        className="mm-app",
+        style={"animationDelay": f"{index * APP_SPOTLIGHT_S}s"},
+        children=[
+            html.Span(
+                text("organizacion", "estados", app["estado"]),
+                className=f"mm-app-status is-{app['estado']}",
+            ),
+            html.H3(app["titulo"]),
+            html.P(app["texto"], className="mm-note"),
+        ],
+    )
+
+
+def _live_text(index: int) -> html.Div:
+    return html.Div(
+        text("organizacion", "vivo", "sin_conexion"),
+        id=f"mm-stage-live-{index}",
+        className="mm-stage-live",
+    )
+
+
 def _company_view() -> html.Section:
     groups = text("empresa", "grupos")
+    apps = list(text("organizacion", "apps").keys())
     return html.Section(
         id="mm-view-empresa",
         className="mm-empresa is-hidden",
@@ -345,64 +376,69 @@ def _company_view() -> html.Section:
                 children=[
                     html.Div(
                         [
-                            html.H2(text("empresa", "titulo")),
-                            html.P(text("empresa", "subtitulo"), className="mm-note"),
+                            html.H2(text("organizacion", "titulo")),
+                            html.P(text("organizacion", "subtitulo"), className="mm-note"),
                         ]
                     ),
-                    html.Div(text("empresa", "aviso_simulados"), className="mm-sim-notice"),
-                ],
-            ),
-            html.Div(
-                className="mm-company-grid",
-                children=[
                     html.Div(
-                        className="mm-plot",
-                        children=[
-                            html.H3(text("empresa", "participacion_titulo")),
-                            _graph("mm-trend", trend_figure(), "30vh"),
-                            html.P(
-                                [
-                                    html.Strong(f"{_pilot.median_sessions(CURRENT_WEEK):.0f} "),
-                                    text("empresa", "sesiones"),
-                                ],
-                                className="mm-note",
-                            ),
-                        ],
-                    ),
-                    html.Div(
-                        className="mm-groups",
-                        children=[
-                            html.H3(text("empresa", "grupos_titulo")),
-                            html.Div(
-                                className="mm-group-picker",
-                                role="group",
-                                children=[
-                                    _group_button(g.key, groups[g.key], g is GROUPS[0])
-                                    for g in GROUPS
-                                ],
-                            ),
-                            html.Div(
-                                group_card(GROUPS[0].key),
-                                id="mm-group-card",
-                                className="mm-group-card",
-                            ),
-                        ],
+                        notice("simulada"),
+                        id="mm-sim-notice-org",
+                        className="mm-sim-notice is-hidden",
                     ),
                 ],
             ),
+            html.H3(text("organizacion", "flujo_titulo"), className="mm-section-title"),
             html.Div(
-                className="mm-company-lists",
+                id="mm-flow",
+                className="mm-flow",
                 children=[
-                    _list(text("empresa", "nunca_titulo"), text("empresa", "nunca")),
-                    _list(text("empresa", "acuerdo_titulo"), text("empresa", "acuerdo")),
+                    _stage("sensor", 1, _live_text(1)),
+                    _flow_link(),
+                    _stage("senal", 2, _graph("mm-spark", spark_figure(), "44px")),
+                    _flow_link(),
+                    _stage("limpieza", 3, _live_text(3)),
+                    _flow_link(),
+                    _stage("analisis", 4, _live_text(4)),
+                    _flow_link(),
+                    _stage(
+                        "resultado",
+                        5,
+                        html.Div(
+                            text("organizacion", "vivo", "resultado"), className="mm-stage-live"
+                        ),
+                    ),
+                ],
+            ),
+            html.H3(text("organizacion", "apps_titulo"), className="mm-section-title"),
+            html.Div(
+                className="mm-apps",
+                style={"--mm-spotlight-cycle": f"{len(apps) * APP_SPOTLIGHT_S}s"},
+                children=[_app_card(key, i) for i, key in enumerate(apps)],
+            ),
+            html.Div(
+                className="mm-privacy",
+                children=[
+                    html.Div(
+                        [
+                            html.H3(text("organizacion", "privacidad_titulo")),
+                            html.P(text("organizacion", "privacidad_nota"), className="mm-note"),
+                            html.Div(text("empresa", "aviso_simulados"), className="mm-sim-notice"),
+                        ]
+                    ),
+                    html.Div(
+                        className="mm-group-picker",
+                        role="group",
+                        children=[
+                            _group_button(g.key, groups[g.key], g is GROUPS[0]) for g in GROUPS
+                        ],
+                    ),
+                    html.Div(
+                        group_card(GROUPS[0].key), id="mm-group-card", className="mm-group-card"
+                    ),
                 ],
             ),
         ],
     )
-
-
-def _list(title: str, items: list[str]) -> html.Div:
-    return html.Div([html.H3(title), html.Ul([html.Li(i) for i in items])])
 
 
 def _source_button(kind: str, label: str, active: bool) -> html.Button:
@@ -626,6 +662,7 @@ def start_baseline(_clicks, name):
     Output("mm-progress-fill", "style"),
     Output("mm-op-quality", "children"),
     Output("mm-op-iaf", "children"),
+    Output("mm-spectrum-card", "className"),
     Input("mm-interval", "n_intervals"),
     State("mm-session", "data"),
     prevent_initial_call=True,
@@ -634,7 +671,7 @@ def refresh(_n, name):
     """Vacia la cola de la sesion, analiza y actualiza solo lo que cambio."""
     session = registry.get(name) if name else None
     if session is None:
-        return (no_update,) * 13
+        return (no_update,) * 14
 
     quality = session.quality
     samples_uv = np.asarray(session.drain(), dtype=float) * RAW_TO_UV
@@ -670,6 +707,7 @@ def refresh(_n, name):
         {"width": f"{100 * snap.baseline_progress:.0f}%"},
         render_quality(quality),
         iaf_text,
+        _card_class(snap, quality.is_ready),
     )
 
 
@@ -678,16 +716,18 @@ def refresh(_n, name):
     Output("mm-source", "className"),
     Output("mm-sim-notice", "className"),
     Output("mm-sim-notice-medimos", "className"),
+    Output("mm-sim-notice-org", "className"),
     Input("mm-session", "data"),
 )
 def show_source(name):
     """La fuente se declara en pantalla; el aviso sale del nombre de la sesion."""
     hidden = "mm-sim-notice is-hidden"
     if not name:
-        return text("fuente", "sin_fuente"), "mm-source is-off", hidden, hidden
+        return text("fuente", "sin_fuente"), "mm-source is-off", hidden, hidden, hidden
     if name == SIM_NAME:
-        return text("operacion", "simulada"), "mm-source is-sim", "mm-sim-notice", "mm-sim-notice"
-    return text("fuente", "en_vivo"), "mm-source is-live", hidden, hidden
+        shown = "mm-sim-notice"
+        return text("operacion", "simulada"), "mm-source is-sim", shown, shown, shown
+    return text("fuente", "en_vivo"), "mm-source is-live", hidden, hidden, hidden
 
 
 @dash.callback(
@@ -697,6 +737,7 @@ def show_source(name):
     Output("mm-quality", "children"),
     Output("mm-exponent", "children"),
     Output("mm-funnel", "figure"),
+    Output("mm-fit-card", "className"),
     Input("mm-interval", "n_intervals"),
     State("mm-session", "data"),
     State("mm-audience", "data"),
@@ -704,7 +745,7 @@ def show_source(name):
 )
 def refresh_measurement(n, name, audience):
     """Actualiza "Como lo medimos" solo cuando esta a la vista."""
-    skip = (no_update,) * 6
+    skip = (no_update,) * 7
     if audience != "medimos" or not name or (n or 0) % MEASURE_EVERY:
         return skip
     with _state_lock:
@@ -732,7 +773,40 @@ def refresh_measurement(n, name, audience):
         quality_children(view),
         exponent,
         funnel,
+        _card_class(snap, view.clean_fraction is not None),
     )
+
+
+@dash.callback(
+    Output("mm-stage-live-1", "children"),
+    Output("mm-stage-live-3", "children"),
+    Output("mm-stage-live-4", "children"),
+    Output("mm-flow", "className"),
+    Output("mm-spark", "figure"),
+    Input("mm-interval", "n_intervals"),
+    State("mm-session", "data"),
+    State("mm-audience", "data"),
+    prevent_initial_call=True,
+)
+def refresh_organization(n, name, audience):
+    """Datos en vivo del flujo "Cómo funciona", solo cuando la vista está a la vista."""
+    if audience != "empresa" or (n or 0) % MEASURE_EVERY:
+        return (no_update,) * 5
+    session = registry.get(name) if name else None
+    with _state_lock:
+        snap = _last_snapshots.get(name) if name else None
+        history = _histories.get(name) if name else None
+        view = history.view(time.monotonic()) if history is not None else None
+    ready = session is not None and session.quality.is_ready
+    rate = session.quality.packet_rate_hz if session is not None else 0.0
+    sensor, cleaning, analysis, flow = organization_live(snap, view, ready, rate)
+    spark = no_update
+    if snap is not None:
+        keep = snap.trace_t >= -2.0
+        spark = Patch()
+        spark["data"][0]["x"] = _rounded(snap.trace_t[keep])
+        spark["data"][0]["y"] = _rounded(snap.trace_uv[keep])
+    return sensor, cleaning, analysis, flow, spark
 
 
 @dash.callback(
@@ -749,6 +823,25 @@ def show_group(_clicks):
 
 
 # ============================================================== auxiliares
+
+
+def _card_class(snap: Snapshot, ready: bool) -> str:
+    """Marco rojo ligero cuando lo que se dibuja no entró al análisis."""
+    excluded = ready and snap.display_spectrum_db is not None and not snap.window_used
+    return "mm-plot is-excluded" if excluded else "mm-plot"
+
+
+def organization_live(snap: Snapshot | None, view, ready: bool, rate_hz: float) -> tuple:
+    """Textos en vivo de las etapas 1, 3 y 4 del flujo, y la clase del flujo."""
+    live = text("organizacion", "vivo")
+    if snap is None or not ready:
+        off = live["sin_conexion"]
+        return off, off, off, "mm-flow"
+    sensor = live["tramas"].format(n=f"{rate_hz:.0f}")
+    useful = 0.0 if view is None or view.clean_fraction is None else 100 * view.clean_fraction
+    cleaning = live["limpieza"].format(n=snap.blink_count, p=f"{useful:.0f}")
+    analysis = live["sin_base"] if snap.zone is None else text("persona", "zonas", snap.zone.value)
+    return sensor, cleaning, analysis, "mm-flow is-live"
 
 
 def _status_key(snap: Snapshot) -> str:
@@ -788,11 +881,13 @@ def _trace_patch(snap: Snapshot) -> Patch:
 
 
 def _spectrum_patch(snap: Snapshot) -> object:
-    if snap.spectrum_hz is None:
+    # Se dibuja la ventana completa, con artefactos: lo que se ve no se recorta.
+    # Si el análisis la descartó, la tarjeta lo marca con un marco rojo.
+    if snap.spectrum_hz is None or snap.display_spectrum_db is None:
         return no_update
     patch = Patch()
     patch["data"][0]["x"] = _rounded(snap.spectrum_hz)
-    patch["data"][0]["y"] = _rounded(snap.spectrum_db)
+    patch["data"][0]["y"] = _rounded(snap.display_spectrum_db)
     patch["layout"]["shapes"][0]["x0"] = snap.iaf_hz - ALPHA_HALF_WIDTH_HZ
     patch["layout"]["shapes"][0]["x1"] = snap.iaf_hz + ALPHA_HALF_WIDTH_HZ
     return patch

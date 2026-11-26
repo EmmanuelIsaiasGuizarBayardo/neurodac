@@ -216,7 +216,7 @@
     },
     "vistas": {
       "persona": "Tu sesión",
-      "empresa": "Lo que ve la empresa",
+      "empresa": "Para tu organización",
       "medimos": "Cómo lo medimos"
     },
     "fuente": {
@@ -291,7 +291,8 @@
     "limites": "Sin reclutamiento, sin evaluación de desempeño, sin detección de emociones y sin rankings de personas.",
     "avisos": {
       "prototipo": "Prototipo con un indicador provisional. No es un dispositivo médico.",
-      "no_se_guarda": "Nada de esta sesión se guarda."
+      "no_se_guarda": "Nada de esta sesión se guarda.",
+      "excluida": "Ventana con parpadeo o movimiento: se ve, pero no se usa."
     },
     "operacion": {
       "titulo": "Operación",
@@ -315,7 +316,7 @@
       "titulo": "Cómo lo medimos, en vivo",
       "subtitulo": "Todo se calcula en este momento con la señal de la diadema y nada se guarda.",
       "espectrograma_titulo": "Espectrograma del último minuto",
-      "espectrograma_nota": "Cada columna es un instante. Con los ojos cerrados se aclara tu franja *alfa* (línea punteada). En gris, momentos descartados por parpadeo o movimiento.",
+      "espectrograma_nota": "Cada columna es un instante. Con los ojos cerrados se aclara tu franja *alfa* (línea punteada). Los recuadros rojos marcan momentos con parpadeo o movimiento: se ven, pero no se usan.",
       "eje_hace": "segundos atrás",
       "curva_titulo": "La oscilación, separada del fondo",
       "curva_nota": "Punteado, el fondo 1/f de tu señal. Sombreado, tu ritmo *alfa* por encima de ese fondo: eso medimos (Donoghue et al., 2020).",
@@ -341,6 +342,90 @@
         "Baumgartner et al. (2026), *JMIR Neurotechnology*: EEG de consumo en una exhibición, con calidad revisada y línea base de 30 s.",
         "Treves et al. (2025), *JMIR*: el beneficio del EEG de consumo aún es modesto; medimos antes de prometer."
       ]
+    },
+    "organizacion": {
+      "titulo": "Para tu organización",
+      "subtitulo": "Lo que viste es una muestra. Así funciona por dentro, y esto podríamos construir juntos.",
+      "flujo_titulo": "Cómo funciona, en vivo",
+      "etapas": {
+        "sensor": {
+          "titulo": "Sensor",
+          "texto": "Una diadema con un electrodo en la frente capta actividad eléctrica."
+        },
+        "senal": {
+          "titulo": "Señal",
+          "texto": "Llega a la computadora en tiempo real."
+        },
+        "limpieza": {
+          "titulo": "Limpieza",
+          "texto": "Detectamos parpadeos y movimientos y los apartamos del análisis."
+        },
+        "analisis": {
+          "titulo": "Análisis",
+          "texto": "Comparamos tu señal contigo, nunca con otras personas."
+        },
+        "resultado": {
+          "titulo": "Resultado",
+          "texto": "Tú ves tu sesión; la organización, solo datos agregados."
+        }
+      },
+      "vivo": {
+        "sin_conexion": "Sin conexión",
+        "tramas": "{n} tramas por segundo",
+        "limpieza": "{n} parpadeos apartados; {p} % de señal útil",
+        "sin_base": "Falta medir la línea base",
+        "resultado": "Solo grupos de 5 personas o más"
+      },
+      "apps_titulo": "Qué podríamos construir juntos",
+      "apps": {
+        "bienestar": {
+          "titulo": "Bienestar y entrenamiento",
+          "texto": "Programas voluntarios en los que cada persona practica con su propia señal.",
+          "estado": "demo"
+        },
+        "consumidores": {
+          "titulo": "Investigación de consumidores",
+          "texto": "Estudios con consentimiento sobre cómo cambia la señal ante un empaque, un anuncio o un producto.",
+          "estado": "medida"
+        },
+        "experiencia": {
+          "titulo": "Experiencia de usuario",
+          "texto": "Sumar señales del cuerpo a las pruebas con usuarios de una app o un sitio.",
+          "estado": "medida"
+        },
+        "operacion": {
+          "titulo": "Atención en tareas críticas",
+          "texto": "Explorar atención o fatiga en simuladores o tareas de riesgo, de forma voluntaria y agregada.",
+          "estado": "medida"
+        },
+        "capacitacion": {
+          "titulo": "Capacitación y ergonomía",
+          "texto": "Medir actividad muscular (EMG) y esfuerzo durante entrenamientos o en el diseño de puestos.",
+          "estado": "medida"
+        },
+        "control": {
+          "titulo": "Interfaces de control",
+          "texto": "Controlar software o dispositivos con señales del cuerpo, como parpadeos o contracciones musculares.",
+          "estado": "medida"
+        },
+        "salud": {
+          "titulo": "Investigación en salud",
+          "texto": "Herramientas de investigación junto con instituciones de salud; no diagnóstico.",
+          "estado": "medida"
+        },
+        "educacion": {
+          "titulo": "Educación y divulgación",
+          "texto": "Talleres y demostraciones interactivas con señales del cerebro y del cuerpo.",
+          "estado": "hoy"
+        }
+      },
+      "estados": {
+        "demo": "Lo ves en este demo",
+        "hoy": "Lo hacemos hoy",
+        "medida": "Proyecto a la medida"
+      },
+      "privacidad_titulo": "Privacidad por diseño",
+      "privacidad_nota": "Elige un grupo y mira qué vería la organización. La empresa nunca ve la señal de nadie, resultados individuales ni quién participa."
     }
   }
 }

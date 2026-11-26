@@ -399,10 +399,9 @@ def test_pagina_no_depende_de_bootstrap(page) -> None:
 
 
 def test_pagina_declara_la_senal_simulada(page) -> None:
-    _, css, notice_css, notice_medimos = page.show_source(page.SIM_NAME)
+    _, css, *notices = page.show_source(page.SIM_NAME)
     assert "is-sim" in css
-    assert "is-hidden" not in notice_css
-    assert "is-hidden" not in notice_medimos
+    assert all("is-hidden" not in n for n in notices)
 
 
 # --------------------------------------------------- como lo medimos
@@ -448,7 +447,7 @@ def _history_run(x: np.ndarray, ready: bool = True) -> tuple[SessionHistory, flo
     return history, t
 
 
-def test_historial_arma_el_espectrograma_con_huecos_descartados() -> None:
+def test_historial_no_recorta_y_marca_lo_descartado() -> None:
     x = _eeg(8, 10.0, seed=13)
     t = np.arange(x.size) / FS
     for center in np.arange(4.3, 6.5, 0.6):  # parpadeos seguidos: ventanas sin tramo limpio
@@ -457,10 +456,26 @@ def test_historial_arma_el_espectrograma_con_huecos_descartados() -> None:
     view = history.view(now)
     assert view.spec_db is not None
     assert view.spec_db.shape == (view.spec_hz.size, view.spec_t.size)
-    gaps = np.isnan(view.spec_db).all(axis=0)
-    assert gaps.any() and not gaps.all()
+    # Desde que hay una ventana completa (2 s), ninguna columna queda vacía.
+    filled = view.spec_t >= view.spec_t[0] + 2.5
+    assert not np.isnan(view.spec_db[:, filled]).all(axis=0).any()
+    # Lo descartado se marca, cae donde estaban los parpadeos y no cubre todo.
+    assert view.excluded_spans
+    starts = [now + a for a, _ in view.excluded_spans]
+    assert min(starts) > 3.5
     assert 0.0 < view.clean_fraction < 1.0
     assert view.time_to_ready_s == pytest.approx(TICK_S)
+
+
+def test_ventana_descartada_se_sigue_dibujando() -> None:
+    x = _eeg(4, 5.0, seed=17)
+    t = np.arange(x.size) / FS
+    for center in np.arange(2.2, 4.0, 0.6):
+        x += 200.0 * np.exp(-0.5 * ((t - center) / 0.06) ** 2)
+    snap, _ = _feed(LiveAnalyzer(), x, 0.0)
+    assert snap.window_used is False
+    assert snap.display_spectrum_db is not None
+    assert snap.display_spectrum_db.size == snap.spectrum_hz.size
 
 
 def test_historial_vacio_sin_senal_lista() -> None:
@@ -522,3 +537,33 @@ def test_cambio_de_audiencia_devuelve_una_salida_por_output(page) -> None:
     assert len(out) == 3 * len(page.AUDIENCES) + 1
     assert out[2] == "mm-medimos"
     assert out[-1] == "medimos"
+
+
+def test_marco_rojo_solo_si_la_ventana_no_se_uso(page) -> None:
+    clean, _ = _feed(LiveAnalyzer(), _eeg(4, 5.0, seed=18), 0.0)
+    assert page._card_class(clean, True) == "mm-plot"
+    x = _eeg(4, 5.0, seed=19)
+    t = np.arange(x.size) / FS
+    for center in np.arange(2.2, 4.0, 0.6):
+        x += 200.0 * np.exp(-0.5 * ((t - center) / 0.06) ** 2)
+    blinked, _ = _feed(LiveAnalyzer(), x, 0.0)
+    assert page._card_class(blinked, True) == "mm-plot is-excluded"
+    assert page._card_class(blinked, False) == "mm-plot"
+
+
+def test_flujo_de_organizacion_sin_y_con_senal(page) -> None:
+    off = page.organization_live(None, None, False, 0.0)
+    assert off[-1] == "mm-flow"
+    history, now = _history_run(_eeg(4, 5.0, seed=20))
+    snap, _ = _feed(LiveAnalyzer(), _eeg(4, 5.0, seed=20), 0.0)
+    sensor, cleaning, analysis, flow = page.organization_live(snap, history.view(now), True, 512.0)
+    assert flow == "mm-flow is-live"
+    assert "512" in sensor
+    assert analysis == text("organizacion", "vivo", "sin_base")
+
+
+def test_cada_aplicacion_tiene_un_estado_valido() -> None:
+    estados = text("organizacion", "estados")
+    for app in text("organizacion", "apps").values():
+        assert app["estado"] in estados
+        assert app["titulo"] and app["texto"]

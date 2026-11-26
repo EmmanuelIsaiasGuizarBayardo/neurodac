@@ -40,9 +40,6 @@ QUALITY_WINDOW_S = 60.0
 #: referencia usa 120 s de tarea; en un stand, 60 s es lo realista.
 PRACTICE_GOAL_S = 60.0
 
-#: Estados en los que la ventana actual se uso (no se descarto).
-_USABLE = (MetricStatus.LIVE, MetricStatus.BASELINE, MetricStatus.NO_BASELINE)
-
 
 @dataclass(frozen=True)
 class HistoryView:
@@ -55,7 +52,11 @@ class HistoryView:
     spec_hz : numpy.ndarray or None
         Frecuencias de las filas; None si aun no hay espectro.
     spec_db : numpy.ndarray or None
-        Matriz frecuencia por tiempo, en dB; NaN donde la ventana se descarto.
+        Matriz frecuencia por tiempo, en dB, de la ventana completa: no se
+        recorta nada. NaN solo donde todavia no habia senal.
+    excluded_spans : list of tuple of float
+        Intervalos (inicio, fin), relativos al presente, que el analisis
+        descarto por parpadeo o movimiento. Se dibujan como marcos rojos.
     track_t, track_z : numpy.ndarray
         Indicador respecto a la linea base; NaN donde no hubo dato.
     baseline_spans : list of tuple of float
@@ -72,6 +73,7 @@ class HistoryView:
     spec_t: np.ndarray
     spec_hz: np.ndarray | None
     spec_db: np.ndarray | None
+    excluded_spans: list[tuple[float, float]]
     track_t: np.ndarray
     track_z: np.ndarray
     baseline_spans: list[tuple[float, float]]
@@ -93,7 +95,7 @@ class SessionHistory:
         self._connected_at = connected_at
         self._ready_at: float | None = None
         self._last_at: float | None = None
-        self._spec: deque[tuple[float, np.ndarray | None]] = deque()
+        self._spec: deque[tuple[float, np.ndarray | None, bool]] = deque()
         self._track: deque[tuple[float, float | None]] = deque()
         self._usable: deque[tuple[float, bool]] = deque()
         self._spans: list[list[float]] = []
@@ -111,12 +113,12 @@ class SessionHistory:
             return
         self._last_at = now
 
-        usable = ready and snap.status in _USABLE
+        usable = ready and snap.window_used
         column = None
-        if usable and snap.spectrum_db is not None:
-            column = np.asarray(snap.spectrum_db, dtype=float)
+        if ready and snap.display_spectrum_db is not None and snap.spectrum_hz is not None:
+            column = np.asarray(snap.display_spectrum_db, dtype=float)
             self._spec_hz = np.asarray(snap.spectrum_hz, dtype=float)
-        self._spec.append((now, column))
+        self._spec.append((now, column, usable))
 
         z = snap.z_display if snap.status is MetricStatus.LIVE else None
         self._track.append((now, z))
@@ -126,15 +128,18 @@ class SessionHistory:
 
     def view(self, now: float) -> HistoryView:
         """Arma las matrices y series para dibujar en el instante `now`."""
-        spec_t = np.array([t - now for t, _ in self._spec])
+        spec_t = np.array([t - now for t, _, _ in self._spec])
         spec_db = None
         if self._spec_hz is not None and self._spec:
             n_hz = self._spec_hz.size
             columns = [
                 c if c is not None and c.size == n_hz else np.full(n_hz, np.nan)
-                for _, c in self._spec
+                for _, c, _ in self._spec
             ]
             spec_db = np.column_stack(columns)
+        excluded = _merge_spans(
+            [t - now for t, c, used in self._spec if c is not None and not used], HISTORY_STEP_S
+        )
         track_t = np.array([t - now for t, _ in self._track])
         track_z = np.array([np.nan if z is None else z for _, z in self._track])
         spans = [
@@ -147,6 +152,7 @@ class SessionHistory:
             spec_t=spec_t,
             spec_hz=self._spec_hz,
             spec_db=spec_db,
+            excluded_spans=excluded,
             track_t=track_t,
             track_z=track_z,
             baseline_spans=spans,
@@ -171,6 +177,17 @@ class SessionHistory:
         while self._usable and now - self._usable[0][0] > QUALITY_WINDOW_S:
             self._usable.popleft()
         self._spans = [s for s in self._spans if s[1] is None or now - s[1] <= TRACK_S]
+
+
+def _merge_spans(times: list[float], step: float) -> list[tuple[float, float]]:
+    """Une instantes consecutivos en intervalos de media muestra a cada lado."""
+    spans: list[list[float]] = []
+    for t in times:
+        if spans and t - spans[-1][1] <= step * 1.5:
+            spans[-1][1] = t
+        else:
+            spans.append([t, t])
+    return [(a - step / 2, b + step / 2) for a, b in spans]
 
 
 @dataclass(frozen=True)
