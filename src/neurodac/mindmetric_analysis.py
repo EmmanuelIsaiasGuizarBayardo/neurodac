@@ -84,6 +84,11 @@ BLINK_CEIL_UV = 150.0
 #: entonces la MAD describe al parpadeo y el umbral sube hasta el techo.
 LOW_QUARTILE_TO_SD = 1.0 / 0.31863936
 BLINK_REFRACTORY_S = 0.4
+#: Doble parpadeo voluntario: dos parpadeos contados con no más de 1 s entre sí
+#: (el mínimo lo pone el refractario de 0.4 s). Tras uno, 1.5 s sin detectar
+#: otro, para que un tercer parpadeo no encadene una segunda orden.
+DOUBLE_BLINK_MAX_S = 1.0
+DOUBLE_BLINK_COOLDOWN_S = 1.5
 
 HOLD_S = 2.0
 BASELINE_S = 30.0
@@ -310,6 +315,12 @@ class Snapshot:
         Umbral de parpadeo vigente; se muestra solo al personal.
     blink_count : int
         Parpadeos detectados desde que se creo el analizador, con senal lista.
+    double_blink_count : int
+        Dobles parpadeos detectados: la orden de la demostracion de control.
+    alpha_db : float or None
+        Potencia alfa sobre el fondo aperiodico, suavizada, en dB, aunque no
+        haya linea base. None si la ventana actual no se uso. Sirve para ver
+        cambios relativos, como la respuesta a un estimulo.
     fit_hz, fit_db : numpy.ndarray or None
         Recta aperiodica del ultimo espectro util, en dB, sobre 2 a 40 Hz.
     exponent : float or None
@@ -338,6 +349,8 @@ class Snapshot:
     baseline_active: bool
     blink_threshold_uv: float
     blink_count: int
+    double_blink_count: int
+    alpha_db: float | None
     fit_hz: np.ndarray | None
     fit_db: np.ndarray | None
     exponent: float | None
@@ -370,6 +383,10 @@ class LiveAnalyzer:
         self._blink_band = np.zeros(0)
         self._blink_threshold = BLINK_FLOOR_UV
         self._blink_count = 0
+        self._double_count = 0
+        self._double_cooldown_until = -(10**9)
+        self._alpha_db: float | None = None
+        self._last_alpha_at: float | None = None
         self._blink_prev_over = False
         self._samples_seen = 0
         self._last_blink_sample = -(10**9)
@@ -473,6 +490,8 @@ class LiveAnalyzer:
             baseline_active=self._baseline_active,
             blink_threshold_uv=self._blink_threshold,
             blink_count=self._blink_count,
+            double_blink_count=self._double_count,
+            alpha_db=self._alpha_db if self._window_used else None,
             fit_hz=self._fit_hz,
             fit_db=None if self._fit_log is None else 10.0 * self._fit_log,
             exponent=self._exponent,
@@ -508,7 +527,11 @@ class LiveAnalyzer:
         for offset in rising:
             index = self._samples_seen + int(offset)
             if ready and index - self._last_blink_sample > refractory:
+                gap = index - self._last_blink_sample
                 self._blink_count += 1
+                if gap <= DOUBLE_BLINK_MAX_S * self.fs and index >= self._double_cooldown_until:
+                    self._double_count += 1
+                    self._double_cooldown_until = index + int(DOUBLE_BLINK_COOLDOWN_S * self.fs)
                 self._last_blink_sample = index
         self._blink_prev_over = bool(over[-1])
         self._samples_seen += n
@@ -548,6 +571,7 @@ class LiveAnalyzer:
         f, res = residual
         self._window_used = True
         self._last_good_at = now
+        self._update_alpha(periodic_band_power(f, res, self._baseline.iaf_hz), now)
 
         if self._baseline_active and not self._baseline.done:
             return self._collect_baseline(now, res)
@@ -629,6 +653,15 @@ class LiveAnalyzer:
         self._last_metric_at = base.times[-1]
         self._baseline_active = False
         self._last_baseline_at = None
+
+    def _update_alpha(self, value: float, now: float) -> None:
+        """Alfa suavizada igual que el indicador, pero sin depender de la linea base."""
+        if self._alpha_db is None or self._last_alpha_at is None:
+            self._alpha_db = value
+        else:
+            weight = 1.0 - np.exp(-max(0.0, now - self._last_alpha_at) / METRIC_TAU_S)
+            self._alpha_db = (1.0 - weight) * self._alpha_db + weight * value
+        self._last_alpha_at = now
 
     def _update_display_psd(self, now: float) -> None:
         """Espectro de la ventana completa, suavizado igual que el del analisis."""

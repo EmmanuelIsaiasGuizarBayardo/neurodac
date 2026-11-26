@@ -29,6 +29,7 @@ __all__ = [
     "FunnelCounts",
     "HistoryView",
     "SessionHistory",
+    "StimulusResponse",
     "StandFunnel",
 ]
 
@@ -36,6 +37,9 @@ HISTORY_STEP_S = 0.25
 SPECTROGRAM_S = 60.0
 TRACK_S = 120.0
 QUALITY_WINDOW_S = 60.0
+#: Ventana de la respuesta a un estimulo: 3 s antes y 8 s despues.
+STIMULUS_PRE_S = 3.0
+STIMULUS_POST_S = 8.0
 #: Un minuto de practica con senal util tras la linea base. El estudio de
 #: referencia usa 120 s de tarea; en un stand, 60 s es lo realista.
 PRACTICE_GOAL_S = 60.0
@@ -82,6 +86,29 @@ class HistoryView:
     time_to_ready_s: float | None
 
 
+@dataclass(frozen=True)
+class StimulusResponse:
+    """Cambio de alfa alrededor de los estimulos marcados.
+
+    Attributes
+    ----------
+    offsets : numpy.ndarray
+        Segundos respecto al estimulo, de -`STIMULUS_PRE_S` a +`STIMULUS_POST_S`.
+    curves : list of numpy.ndarray
+        Una curva por estimulo completo: alfa menos su promedio de los 3 s
+        previos, en dB. NaN donde la ventana se descarto.
+    mean : numpy.ndarray or None
+        Promedio de las curvas, ignorando NaN.
+    pending : int
+        Estimulos marcados que aun no cumplen sus 8 s.
+    """
+
+    offsets: np.ndarray
+    curves: list[np.ndarray]
+    mean: np.ndarray | None
+    pending: int
+
+
 class SessionHistory:
     """Muestras espaciadas cada `HISTORY_STEP_S` de una conexion.
 
@@ -99,6 +126,8 @@ class SessionHistory:
         self._track: deque[tuple[float, float | None]] = deque()
         self._usable: deque[tuple[float, bool]] = deque()
         self._spans: list[list[float]] = []
+        self._alpha: deque[tuple[float, float]] = deque()
+        self._marks: list[float] = []
         self._baseline_was_active = False
         self._spec_hz: np.ndarray | None = None
         self._blinks = 0
@@ -115,6 +144,8 @@ class SessionHistory:
 
         usable = ready and snap.window_used
         column = None
+        if snap.alpha_db is not None:
+            self._alpha.append((now, snap.alpha_db))
         if ready and snap.display_spectrum_db is not None and snap.spectrum_hz is not None:
             column = np.asarray(snap.display_spectrum_db, dtype=float)
             self._spec_hz = np.asarray(snap.spectrum_hz, dtype=float)
@@ -125,6 +156,34 @@ class SessionHistory:
         if ready:
             self._usable.append((now, usable))
         self._trim(now)
+
+    def mark_stimulus(self, now: float) -> None:
+        """Registra el instante de un estimulo."""
+        self._marks.append(now)
+
+    def stimulus_response(self, now: float) -> StimulusResponse:
+        """Promedia el cambio de alfa alrededor de cada estimulo completo."""
+        offsets = np.arange(-STIMULUS_PRE_S, STIMULUS_POST_S + 1e-9, HISTORY_STEP_S)
+        times = np.array([t for t, _ in self._alpha])
+        values = np.array([v for _, v in self._alpha])
+        curves, pending = [], 0
+        for mark in self._marks:
+            if now - mark < STIMULUS_POST_S:
+                pending += 1
+                continue
+            if times.size < 2 or mark - STIMULUS_PRE_S < times[0]:
+                continue
+            curve = _sample(times, values, mark + offsets)
+            pre = curve[offsets < 0]
+            if np.isnan(pre).all():
+                continue
+            curves.append(curve - np.nanmean(pre))
+        mean = None
+        if curves:
+            stack = np.vstack(curves)
+            with np.errstate(all="ignore"):
+                mean = np.where(np.isnan(stack).all(axis=0), np.nan, np.nanmean(stack, axis=0))
+        return StimulusResponse(offsets, curves, mean, pending)
 
     def view(self, now: float) -> HistoryView:
         """Arma las matrices y series para dibujar en el instante `now`."""
@@ -176,7 +235,20 @@ class SessionHistory:
             self._track.popleft()
         while self._usable and now - self._usable[0][0] > QUALITY_WINDOW_S:
             self._usable.popleft()
+        while self._alpha and now - self._alpha[0][0] > TRACK_S:
+            self._alpha.popleft()
+        self._marks = [m for m in self._marks if now - m <= TRACK_S]
         self._spans = [s for s in self._spans if s[1] is None or now - s[1] <= TRACK_S]
+
+
+def _sample(times: np.ndarray, values: np.ndarray, at: np.ndarray) -> np.ndarray:
+    """Valor mas cercano en el tiempo; NaN si el mas cercano esta a mas de un paso."""
+    idx = np.clip(np.searchsorted(times, at), 1, times.size - 1)
+    left, right = times[idx - 1], times[idx]
+    nearest = np.where(at - left <= right - at, idx - 1, idx)
+    out = values[nearest].astype(float)
+    out[np.abs(times[nearest] - at) > 1.5 * HISTORY_STEP_S] = np.nan
+    return out
 
 
 def _merge_spans(times: list[float], step: float) -> list[tuple[float, float]]:

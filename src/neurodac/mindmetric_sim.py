@@ -47,6 +47,8 @@ WHITE_NOISE_UV = 3.0
 BLINK_UV = 180.0
 BLINK_SIGMA_S = 0.06
 BLINK_INTERVAL_S = (2.5, 5.5)
+#: Separacion de los dos parpadeos de un doble parpadeo simulado.
+DOUBLE_BLINK_GAP_S = 0.6
 
 RAW_LIMIT = 2047
 
@@ -113,6 +115,8 @@ class MindMetricSimulatedSource(SimulatedSource):
         self._next_blink = float(self._rng.uniform(*BLINK_INTERVAL_S))
         self._blink_at: float | None = None
         self._alpha = _Resonator(ALPHA_HZ, RAW_HZ, RESONATOR_R)
+        self._double_requested = False
+        self._extra_blinks: list[float] = []
         self._beta = _Resonator(BETA_HZ, RAW_HZ, RESONATOR_R)
 
     def sample_uv(self, t: float) -> float:
@@ -128,7 +132,24 @@ class MindMetricSimulatedSource(SimulatedSource):
             + self._red
             + WHITE_NOISE_UV * self._rng.standard_normal()
         )
-        return value + self._blink(t, weight)
+        return value + self._blink(t, weight) + self._requested_blinks(t)
+
+    def request_double_blink(self) -> None:
+        """Agenda un doble parpadeo; lo llama el panel de operacion para ensayar."""
+        self._double_requested = True
+
+    def _requested_blinks(self, t: float) -> float:
+        if self._double_requested:
+            self._double_requested = False
+            start = t + 0.2
+            self._extra_blinks = [start, start + DOUBLE_BLINK_GAP_S]
+        total = 0.0
+        for center in self._extra_blinks:
+            offset = t - center
+            if abs(offset) <= 3 * BLINK_SIGMA_S:
+                total += BLINK_UV * math.exp(-0.5 * (offset / BLINK_SIGMA_S) ** 2)
+        self._extra_blinks = [c for c in self._extra_blinks if t - c <= 3 * BLINK_SIGMA_S]
+        return total
 
     def _blink(self, t: float, closed_weight: float) -> float:
         """Parpadeos solo con ojos abiertos, a intervalos irregulares."""

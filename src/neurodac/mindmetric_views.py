@@ -24,7 +24,15 @@ from .mindmetric_analysis import (
     ZONE_Z,
     Snapshot,
 )
-from .mindmetric_history import SPECTROGRAM_S, TRACK_S, FunnelCounts, HistoryView
+from .mindmetric_history import (
+    SPECTROGRAM_S,
+    STIMULUS_POST_S,
+    STIMULUS_PRE_S,
+    TRACK_S,
+    FunnelCounts,
+    HistoryView,
+    StimulusResponse,
+)
 
 __all__ = [
     "BATLOW",
@@ -35,6 +43,8 @@ __all__ = [
     "measurement_view",
     "quality_children",
     "spectrogram_figure",
+    "stimulus_figure",
+    "stimulus_patch",
     "spectrogram_patch",
     "track_figure",
     "track_patch",
@@ -217,6 +227,76 @@ def fit_patch(snap: Snapshot) -> object:
     patch["data"][2]["y"] = _rounded(snap.fit_db[band])
     patch["data"][3]["x"] = _rounded(f[band])
     patch["data"][3]["y"] = _rounded(np.maximum(spectrum_on_fit[band], snap.fit_db[band]))
+    return patch
+
+
+# ======================================================= respuesta a estimulo
+
+#: Curvas individuales que se dibujan, ademas del promedio.
+MAX_STIMULUS_CURVES = 12
+
+
+def stimulus_figure() -> go.Figure:
+    """Cambio de alfa alrededor del estimulo: curvas tenues y su promedio."""
+    return go.Figure(
+        data=[go.Scatter(x=[], y=[], mode="lines", line={"color": TRACE_COLOR, "width": 2.4})],
+        layout=_layout(
+            xaxis=_axis(
+                range=[-STIMULUS_PRE_S, STIMULUS_POST_S],
+                title={"text": text("organizacion", "demos", "estimulo", "eje_x")},
+            ),
+            yaxis=_axis(title={"text": text("organizacion", "demos", "estimulo", "eje_y")}),
+            shapes=[
+                {
+                    "type": "line",
+                    "xref": "x",
+                    "yref": "paper",
+                    "x0": 0,
+                    "x1": 0,
+                    "y0": 0,
+                    "y1": 1,
+                    "line": {"color": ALPHA_BAND_COLOR, "width": 2},
+                },
+                {
+                    "type": "line",
+                    "xref": "paper",
+                    "yref": "y",
+                    "x0": 0,
+                    "x1": 1,
+                    "y0": 0,
+                    "y1": 0,
+                    "line": {"color": RULE, "width": 1},
+                },
+            ],
+        ),
+    )
+
+
+def stimulus_patch(response: StimulusResponse) -> object:
+    """Reemplaza las curvas: una tenue por estimulo y el promedio encima."""
+    if not response.curves:
+        return no_update
+    x = _rounded(response.offsets)
+    faint = [
+        {
+            "type": "scatter",
+            "mode": "lines",
+            "x": x,
+            "y": _rounded(c),
+            "line": {"color": "rgba(87, 144, 252, 0.28)", "width": 1},
+            "hoverinfo": "skip",
+        }
+        for c in response.curves[-MAX_STIMULUS_CURVES:]
+    ]
+    mean = {
+        "type": "scatter",
+        "mode": "lines",
+        "x": x,
+        "y": _rounded(response.mean),
+        "line": {"color": TRACE_COLOR, "width": 2.4},
+    }
+    patch = Patch()
+    patch["data"] = [*faint, mean]
     return patch
 
 

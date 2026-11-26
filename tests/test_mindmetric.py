@@ -567,3 +567,95 @@ def test_cada_aplicacion_tiene_un_estado_valido() -> None:
     for app in text("organizacion", "apps").values():
         assert app["estado"] in estados
         assert app["titulo"] and app["texto"]
+
+
+# ---------------------------------------------- demostraciones en vivo
+
+
+def test_doble_parpadeo_se_detecta_una_vez() -> None:
+    x = _blinks(_eeg(5, 5.0, seed=21), [2.0, 2.6], amp_uv=150.0, sigma_s=0.08)
+    snap, _ = _feed(LiveAnalyzer(), x, 0.0)
+    assert snap.blink_count == 2
+    assert snap.double_blink_count == 1
+
+
+def test_parpadeos_separados_no_son_doble() -> None:
+    x = _blinks(_eeg(6, 5.0, seed=22), [1.5, 3.0, 4.5], amp_uv=150.0, sigma_s=0.08)
+    snap, _ = _feed(LiveAnalyzer(), x, 0.0)
+    assert snap.blink_count == 3
+    assert snap.double_blink_count == 0
+
+
+def test_tercer_parpadeo_no_encadena_otra_orden() -> None:
+    x = _blinks(_eeg(5, 5.0, seed=23), [1.5, 2.1, 2.7], amp_uv=150.0, sigma_s=0.08)
+    snap, _ = _feed(LiveAnalyzer(), x, 0.0)
+    assert snap.double_blink_count == 1
+
+
+def test_simulador_produce_doble_parpadeo_a_pedido() -> None:
+    source = MindMetricSimulatedSource()
+    source._next_blink = 1e9  # sin parpadeos espontáneos
+    times = np.arange(1, int(6 * FS)) / FS
+    x = []
+    for t in times:
+        if abs(t - 3.0) < 0.5 / FS:
+            source.request_double_blink()
+        x.append(source.sample_uv(t))
+    snap, _ = _feed(LiveAnalyzer(), np.array(x), 0.0)
+    assert snap.double_blink_count == 1
+
+
+def test_respuesta_a_estimulo_ve_el_aumento_de_alfa() -> None:
+    from neurodac.mindmetric_history import STIMULUS_POST_S
+
+    analyzer = LiveAnalyzer()
+    history = SessionHistory(connected_at=0.0)
+    block = int(TICK_S * FS)
+    t = 0.0
+    marks = [10.0, 25.0]
+    seconds = 40.0
+    rng = np.random.default_rng(24)
+    times = np.arange(int(seconds * FS)) / FS
+    # Alfa de 4 uV que sube a 12 uV de 1 a 6 s después de cada estímulo.
+    amp = np.full(times.size, 4.0)
+    for m in marks:
+        amp[(times >= m + 1.0) & (times < m + 6.0)] = 12.0
+    x = amp * np.sin(2 * np.pi * 10 * times) + 4.0 * rng.standard_normal(times.size)
+    marked = set()
+    for k in range(0, x.size, block):
+        t += TICK_S
+        snap = analyzer.update(x[k : k + block], t, True)
+        history.record(snap, t, True)
+        for m in marks:
+            if m not in marked and t >= m:
+                history.mark_stimulus(m)
+                marked.add(m)
+    response = history.stimulus_response(t)
+    assert len(response.curves) == 2 and response.pending == 0
+    after = response.mean[(response.offsets >= 2.5) & (response.offsets <= 5.5)]
+    before = response.mean[response.offsets < 0]
+    assert np.nanmean(after) > np.nanmean(before) + 3.0
+    assert t - marks[-1] >= STIMULUS_POST_S
+
+
+def test_estimulo_reciente_queda_en_espera() -> None:
+    history = SessionHistory(connected_at=0.0)
+    history.mark_stimulus(10.0)
+    response = history.stimulus_response(12.0)
+    assert response.pending == 1 and not response.curves
+
+
+def test_salidas_de_la_demo_de_control(page) -> None:
+    x = _blinks(_eeg(5, 5.0, seed=25), [2.0, 2.6], amp_uv=150.0, sigma_s=0.08)
+    snap, _ = _feed(LiveAnalyzer(), x, 0.0)
+    lamp, label, count, *_ = page.demo_outputs("control", snap, None, 0)
+    assert lamp == "mm-lamp is-on"
+    assert label == text("organizacion", "demos", "control", "encendida")
+    assert "1" in count
+
+
+def test_abrir_y_cerrar_demostraciones(page) -> None:
+    out = _with_trigger("mm-try-estimulo.n_clicks", page.toggle_demo, None, 1, None)
+    assert out == ("mm-demo", "mm-demo-panel is-hidden", "mm-demo-panel", "estimulo")
+    out = _with_trigger("mm-demo-close.n_clicks", page.toggle_demo, None, None, 1)
+    assert out[0] == "mm-demo is-hidden" and out[-1] is None

@@ -53,6 +53,8 @@ from neurodac.mindmetric_views import (
     quality_children,
     spectrogram_figure,
     spectrogram_patch,
+    stimulus_figure,
+    stimulus_patch,
     track_figure,
     track_patch,
 )
@@ -94,6 +96,8 @@ AUDIENCES = ("persona", "empresa", "medimos")
 #: Segundos que cada aplicación queda resaltada en la vista para
 #: organizaciones. Es solo CSS: no hay callback.
 APP_SPOTLIGHT_S = 3
+#: Tarjetas de aplicaciones que abren una demostración en vivo.
+DEMO_CARDS = {"control": "control", "consumidores": "estimulo"}
 #: La vista de medicion se refresca cada 2 ciclos y el espectrograma cada 4:
 #: es la parte pesada y a ~1.6 Hz se ve fluido.
 MEASURE_EVERY = 2
@@ -346,13 +350,86 @@ def _app_card(key: str, index: int) -> html.Div:
         className="mm-app",
         style={"animationDelay": f"{index * APP_SPOTLIGHT_S}s"},
         children=[
-            html.Span(
-                text("organizacion", "estados", app["estado"]),
-                className=f"mm-app-status is-{app['estado']}",
+            html.Div(
+                className="mm-app-top",
+                children=[
+                    html.Span(
+                        text("organizacion", "estados", app["estado"]),
+                        className=f"mm-app-status is-{app['estado']}",
+                    ),
+                    *(
+                        [
+                            html.Button(
+                                text("organizacion", "probar"),
+                                id=f"mm-try-{DEMO_CARDS[key]}",
+                                className="mm-try",
+                            )
+                        ]
+                        if key in DEMO_CARDS
+                        else []
+                    ),
+                ],
             ),
             html.H3(app["titulo"]),
             html.P(app["texto"], className="mm-note"),
         ],
+    )
+
+
+def _demo_overlay() -> html.Div:
+    """Demostraciones en vivo que abren las tarjetas con "Probar"."""
+    control = text("organizacion", "demos", "control")
+    stimulus = text("organizacion", "demos", "estimulo")
+    return html.Div(
+        id="mm-demo",
+        className="mm-demo is-hidden",
+        children=html.Div(
+            className="mm-demo-card",
+            children=[
+                html.Button(
+                    text("organizacion", "demos", "cerrar"),
+                    id="mm-demo-close",
+                    className="mm-op-button",
+                ),
+                html.Div(
+                    id="mm-demo-control",
+                    className="mm-demo-panel is-hidden",
+                    children=[
+                        html.H2(control["titulo"]),
+                        html.P(control["instruccion"], className="mm-demo-lead"),
+                        html.Div(
+                            className="mm-lamp-row",
+                            children=[
+                                html.Div(id="mm-lamp", className="mm-lamp"),
+                                html.Div(
+                                    [
+                                        html.Div(
+                                            control["apagada"],
+                                            id="mm-lamp-label",
+                                            className="mm-figure",
+                                        ),
+                                        html.P(id="mm-double-count", className="mm-note"),
+                                    ]
+                                ),
+                            ],
+                        ),
+                        html.P(control["nota"], className="mm-note"),
+                    ],
+                ),
+                html.Div(
+                    id="mm-demo-estimulo",
+                    className="mm-demo-panel is-hidden",
+                    children=[
+                        html.H2(stimulus["titulo"]),
+                        html.P(stimulus["instruccion"], className="mm-demo-lead"),
+                        html.Button(stimulus["boton"], id="mm-mark", className="mm-action"),
+                        _graph("mm-stimulus", stimulus_figure(), "34vh"),
+                        html.P(id="mm-stim-count", className="mm-note"),
+                        html.P(stimulus["nota"], className="mm-note"),
+                    ],
+                ),
+            ],
+        ),
     )
 
 
@@ -415,6 +492,7 @@ def _company_view() -> html.Section:
                 style={"--mm-spotlight-cycle": f"{len(apps) * APP_SPOTLIGHT_S}s"},
                 children=[_app_card(key, i) for i, key in enumerate(apps)],
             ),
+            _demo_overlay(),
             html.Div(
                 className="mm-privacy",
                 children=[
@@ -484,6 +562,28 @@ def _operator_panel() -> html.Aside:
             html.Div(id="mm-op-quality", className="nd-quality mm-op-quality"),
             html.P(id="mm-op-iaf", className="mm-op-note"),
             html.P(op["guion_simulado"], className="mm-op-note"),
+            html.Div(
+                className="mm-op-actions",
+                children=[
+                    html.Button(op["simular_doble"], id="mm-sim-double", className="mm-op-choice"),
+                ],
+            ),
+            html.Div(
+                className="mm-op-actions",
+                children=[
+                    # Lo controla assets/mindmetric.js; las etiquetas viven aquí, en el contenido.
+                    html.Button(
+                        op["rotar_activar"],
+                        id="mm-autoplay",
+                        className="mm-op-choice",
+                        **{
+                            "data-label-on": op["rotar_activar"],
+                            "data-label-off": op["rotar_desactivar"],
+                        },
+                    ),
+                ],
+            ),
+            html.P(op["rotar_nota"], className="mm-op-note"),
         ],
     )
 
@@ -524,6 +624,8 @@ layout = html.Div(
         dcc.Store(id="mm-session", data=None),
         dcc.Store(id="mm-source-kind", data="real"),
         dcc.Store(id="mm-audience", data="persona"),
+        dcc.Store(id="mm-demo-kind", data=None),
+        dcc.Store(id="mm-ack", data=None),
     ],
 )
 
@@ -807,6 +909,96 @@ def refresh_organization(n, name, audience):
         spark["data"][0]["x"] = _rounded(snap.trace_t[keep])
         spark["data"][0]["y"] = _rounded(snap.trace_uv[keep])
     return sensor, cleaning, analysis, flow, spark
+
+
+@dash.callback(
+    Output("mm-demo", "className"),
+    Output("mm-demo-control", "className"),
+    Output("mm-demo-estimulo", "className"),
+    Output("mm-demo-kind", "data"),
+    Input("mm-try-control", "n_clicks"),
+    Input("mm-try-estimulo", "n_clicks"),
+    Input("mm-demo-close", "n_clicks"),
+    prevent_initial_call=True,
+)
+def toggle_demo(*_clicks):
+    """Abre la demostración de la tarjeta elegida, o la cierra."""
+    kind = str(ctx.triggered_id).removeprefix("mm-try-")
+    if kind not in ("control", "estimulo"):
+        hidden = "mm-demo-panel is-hidden"
+        return "mm-demo is-hidden", hidden, hidden, None
+    panels = [
+        "mm-demo-panel" if k == kind else "mm-demo-panel is-hidden" for k in ("control", "estimulo")
+    ]
+    return "mm-demo", panels[0], panels[1], kind
+
+
+@dash.callback(
+    Output("mm-ack", "data", allow_duplicate=True),
+    Input("mm-mark", "n_clicks"),
+    State("mm-session", "data"),
+    prevent_initial_call=True,
+)
+def mark_stimulus(clicks, name):
+    """Registra el instante del estímulo en el historial de la sesión."""
+    with _state_lock:
+        history = _histories.get(name) if name else None
+        if history is not None:
+            history.mark_stimulus(time.monotonic())
+    return clicks
+
+
+@dash.callback(
+    Output("mm-ack", "data", allow_duplicate=True),
+    Input("mm-sim-double", "n_clicks"),
+    State("mm-session", "data"),
+    prevent_initial_call=True,
+)
+def simulate_double_blink(clicks, name):
+    """Solo con la señal simulada: agenda un doble parpadeo para ensayar."""
+    session = registry.get(name) if name == SIM_NAME else None
+    if session is not None and hasattr(session.source, "request_double_blink"):
+        session.source.request_double_blink()
+    return clicks
+
+
+@dash.callback(
+    Output("mm-lamp", "className"),
+    Output("mm-lamp-label", "children"),
+    Output("mm-double-count", "children"),
+    Output("mm-stimulus", "figure"),
+    Output("mm-stim-count", "children"),
+    Input("mm-interval", "n_intervals"),
+    State("mm-session", "data"),
+    State("mm-demo-kind", "data"),
+    prevent_initial_call=True,
+)
+def refresh_demo(n, name, kind):
+    """Actualiza la demostración abierta. La luz responde en cada ciclo."""
+    if not kind or not name:
+        return (no_update,) * 5
+    with _state_lock:
+        snap = _last_snapshots.get(name)
+        history = _histories.get(name)
+        response = history.stimulus_response(time.monotonic()) if history else None
+    return demo_outputs(kind, snap, response, n or 0)
+
+
+def demo_outputs(kind: str, snap: Snapshot | None, response, n: int) -> tuple:
+    """Salidas de la demostración abierta; puro para poder probarlo."""
+    control = text("organizacion", "demos", "control")
+    lamp = label = count = graph = stim = no_update
+    if kind == "control" and snap is not None:
+        on = snap.double_blink_count % 2 == 1
+        lamp = "mm-lamp is-on" if on else "mm-lamp"
+        label = control["encendida"] if on else control["apagada"]
+        count = control["contador"].format(n=snap.double_blink_count)
+    if kind == "estimulo" and response is not None and n % MEASURE_EVERY == 0:
+        graph = stimulus_patch(response)
+        stim = text("organizacion", "demos", "estimulo", "conteo").format(
+            n=len(response.curves), p=response.pending
+        )
+    return lamp, label, count, graph, stim
 
 
 @dash.callback(

@@ -334,6 +334,55 @@ body:has(.mm-root) { overflow: hidden; }
   .mm-privacy { grid-template-columns: 1fr; }
 }
 
+/* ----------------------------------------------- demostraciones en vivo */
+
+.mm-app-top { display: flex; justify-content: space-between; align-items: center; gap: 0.4rem; }
+.mm-try {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #fff;
+  background: var(--mm-brand);
+  border: none;
+  border-radius: 3px;
+  padding: 0.12rem 0.6rem;
+}
+.mm-try:hover { background: #154b70; }
+
+.mm-demo {
+  position: fixed;
+  inset: 0;
+  z-index: 1045;
+  display: grid;
+  place-items: center;
+  background: rgba(20, 35, 40, 0.45);
+}
+.mm-demo-card {
+  position: relative;
+  width: min(920px, 94vw);
+  max-height: 92vh;
+  overflow-y: auto;
+  background: var(--mm-surface);
+  border-radius: 8px;
+  padding: 1.4rem 1.6rem 1.2rem;
+}
+.mm-demo-card > .mm-op-button { position: absolute; top: 1rem; right: 1rem; }
+.mm-demo-panel h2 { font-size: 1.35rem !important; margin-bottom: 0.4rem !important; }
+.mm-demo-lead { font-size: 1.02rem; margin: 0 0 1rem; max-width: 60ch; }
+.mm-lamp-row { display: flex; align-items: center; gap: 2rem; margin: 0.6rem 0 1.2rem; }
+.mm-lamp {
+  width: 170px;
+  height: 170px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 40% 35%, #f3f5f4, #c9d1cf);
+  border: 2px solid var(--mm-rule);
+  transition: background 250ms, box-shadow 250ms;
+}
+.mm-lamp.is-on {
+  background: radial-gradient(circle at 40% 35%, #fff3d6, #f8b44a 55%, #f89c20);
+  box-shadow: 0 0 60px 18px rgba(248, 156, 32, 0.45);
+  border-color: #f89c20;
+}
+
 /* ------------------------------------------------------- como lo medimos */
 
 .mm-medimos { display: flex; flex-direction: column; gap: 0.55rem; }
@@ -404,6 +453,7 @@ body:has(.mm-root) { overflow: hidden; }
 .mm-op-label { display: block; font-size: 0.82rem; color: #a9b8b6; margin: 0.8rem 0 0.35rem; }
 .mm-op-choices { display: flex; gap: 0.4rem; }
 .mm-op-choice.is-active { background: #e8eeed; color: #1c2b30; border-color: #e8eeed; }
+.mm-op-actions .mm-op-choice { flex: 1; }
 .mm-op-input {
   width: 100%;
   font: inherit;
@@ -444,5 +494,6 @@ body:has(.mm-root) { overflow: hidden; }
 @media (prefers-reduced-motion: reduce) {
   .mm-gauge-needle, .mm-progress-fill, .mm-switch-option, .mm-op { transition: none; }
   .mm-app, .mm-flow.is-live .mm-flow-link span, .mm-flow.is-live .mm-stage-num { animation: none; }
+  .mm-lamp { transition: none; }
   .mm-flow.is-live .mm-flow-link span { opacity: 1; left: calc(50% - 4px); }
 }
