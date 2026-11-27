@@ -62,7 +62,7 @@ ZONE_FILL = theme.COOL_SOFT
 GAP_COLOR = theme.PAPER_3
 #: Marco de los tramos que el análisis descarta: se ven, pero no se usan.
 EXCLUDED_LINE = theme.BAD
-EXCLUDED_FILL = "rgba(246, 109, 103, 0.10)"
+EXCLUDED_FILL = theme.BAD_FILL
 
 
 def excluded_shapes(spans: list[tuple[float, float]], y_ref: str = "paper") -> list[dict]:
@@ -84,7 +84,7 @@ def excluded_shapes(spans: list[tuple[float, float]], y_ref: str = "paper") -> l
     ]
 
 
-BASELINE_FILL = "rgba(157, 162, 168, 0.10)"
+BASELINE_FILL = theme.BASELINE_FILL
 
 #: figuras_cientificas.sequential() (batlow), muestreado en 11 puntos.
 BATLOW = [
@@ -163,7 +163,9 @@ def spectrogram_figure() -> go.Figure:
     )
 
 
-def spectrogram_patch(view: HistoryView, iaf_hz: float | None) -> object:
+def spectrogram_patch(
+    view: HistoryView, iaf_hz: float | None, theme_name: str | None = None
+) -> object:
     """Actualiza el mapa completo; no_update si aun no hay espectro."""
     if view.spec_db is None or view.spec_hz is None or view.spec_t.size == 0:
         return no_update
@@ -179,7 +181,7 @@ def spectrogram_patch(view: HistoryView, iaf_hz: float | None) -> object:
     if iaf_hz is not None:
         patch["data"][1]["x"] = [-SPECTROGRAM_S, 0]
         patch["data"][1]["y"] = [iaf_hz, iaf_hz]
-    patch["layout"]["shapes"] = excluded_shapes(view.excluded_spans)
+    patch["layout"]["shapes"] = theme.recolor(excluded_shapes(view.excluded_spans), theme_name)
     return patch
 
 
@@ -274,7 +276,7 @@ def stimulus_figure() -> go.Figure:
     )
 
 
-def stimulus_patch(response: StimulusResponse) -> object:
+def stimulus_patch(response: StimulusResponse, theme_name: str | None = None) -> object:
     """Reemplaza las curvas: una tenue por estimulo y el promedio encima."""
     if not response.curves:
         return no_update
@@ -285,7 +287,7 @@ def stimulus_patch(response: StimulusResponse) -> object:
             "mode": "lines",
             "x": x,
             "y": _rounded(c),
-            "line": {"color": "rgba(110, 188, 252, 0.30)", "width": 1},
+            "line": {"color": theme.COOL_FAINT, "width": 1},
             "hoverinfo": "skip",
         }
         for c in response.curves[-MAX_STIMULUS_CURVES:]
@@ -298,7 +300,7 @@ def stimulus_patch(response: StimulusResponse) -> object:
         "line": {"color": TRACE_COLOR, "width": 2.4},
     }
     patch = Patch()
-    patch["data"] = [*faint, mean]
+    patch["data"] = theme.recolor([*faint, mean], theme_name)
     return patch
 
 
@@ -366,12 +368,12 @@ def track_figure() -> go.Figure:
     )
 
 
-def track_patch(view: HistoryView) -> Patch:
+def track_patch(view: HistoryView, theme_name: str | None = None) -> Patch:
     """Linea del indicador y bandas de las lineas base."""
     patch = Patch()
     patch["data"][0]["x"] = _rounded(view.track_t)
     patch["data"][0]["y"] = _rounded(view.track_z)
-    patch["layout"]["shapes"] = _track_shapes(view.baseline_spans)
+    patch["layout"]["shapes"] = theme.recolor(_track_shapes(view.baseline_spans), theme_name)
     return patch
 
 

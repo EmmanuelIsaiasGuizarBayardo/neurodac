@@ -338,12 +338,34 @@
         },
         "estimulo": {
           "titulo": "Respuesta a un estímulo",
-          "instruccion": "Muestra algo y presiona Marcar estímulo. Deja 8 s entre estímulos.",
+          "instruccion": "Elige cómo marcar los estímulos. La curva promedia lo que pasa en los 8 s siguientes.",
           "boton": "Marcar estímulo",
           "conteo": "{n} completos, {p} en espera",
           "nota": "Cambio de alfa frente a los 3 s previos. No mide agrado.",
           "eje_x": "s desde el estímulo",
-          "eje_y": "cambio de alfa (dB)"
+          "eje_y": "cambio de alfa (dB)",
+          "modos": {
+            "guiada": "Guiada: ojos cerrados",
+            "libre": "Libre: tú marcas"
+          },
+          "guiada": {
+            "empezar": "Empezar secuencia",
+            "detener": "Detener",
+            "preparate": "Prepárate",
+            "cierra": "Cierra los ojos",
+            "abre": "Ábrelos",
+            "listo": "Listo",
+            "en_espera": "Presiona Empezar",
+            "ronda": "ronda {i} de {n}",
+            "nota": "Lee cada indicación en voz alta: con los ojos cerrados la persona no ve la pantalla."
+          },
+          "libre": {
+            "pasos": [
+              "Muestra algo a la persona",
+              "Presiona Marcar en ese instante",
+              "Espera 8 s y repite"
+            ]
+          }
         }
       }
     },
@@ -396,7 +418,9 @@
       "simular_doble": "Simular doble parpadeo",
       "rotar_activar": "Rotación automática: activar",
       "rotar_desactivar": "Rotación automática: desactivar",
-      "rotar_nota": "Con la rotación activada, si nadie toca la pantalla durante 45 s las vistas cambian solas cada 20 s. Cualquier toque la detiene."
+      "rotar_nota": "Con la rotación activada, si nadie toca la pantalla durante 45 s las vistas cambian solas cada 20 s. Cualquier toque la detiene.",
+      "tema_claro": "Tema claro",
+      "tema_oscuro": "Tema oscuro"
     }
   }
 }

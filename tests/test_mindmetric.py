@@ -659,3 +659,68 @@ def test_abrir_y_cerrar_demostraciones(page) -> None:
     assert out == ("mm-demo", "mm-demo-panel is-hidden", "mm-demo-panel", "estimulo")
     out = _with_trigger("mm-demo-close.n_clicks", page.toggle_demo, None, None, 1)
     assert out[0] == "mm-demo is-hidden" and out[-1] is None
+
+
+def _double_case(amp: float = 150.0, sigma: float = 0.08, gap: float = 0.6, sign: float = 1.0):
+    singles = [1.5, 3.5, 5.5, 7.5]
+    events = _blinks(np.zeros(int(14 * FS)), [*singles, 10.0, 10.0 + gap], amp, sigma)
+    x = _eeg(14, 5.0, seed=31) + sign * events
+    snap, _ = _feed(LiveAnalyzer(), x, 0.0)
+    return snap.blink_count, snap.double_blink_count
+
+
+def test_doble_parpadeo_suave_y_rapido() -> None:
+    # Lo que costaba con la diadema: parpadeos normales, no forzados.
+    assert _double_case(amp=70.0, sigma=0.06, gap=0.45) == (6, 1)
+
+
+def test_doble_parpadeo_con_polaridad_invertida() -> None:
+    # Si la diadema entrega la señal con el signo contrario, la polaridad se aprende.
+    assert _double_case(sign=-1.0) == (6, 1)
+
+
+def test_parpadeos_naturales_no_encienden_la_luz() -> None:
+    for seed in (1, 2, 3, 7):
+        source = MindMetricSimulatedSource(seed=seed)
+        x = np.array([source.sample_uv((i + 1) / FS) for i in range(int(90 * FS))])
+        snap, _ = _feed(LiveAnalyzer(), x, 0.0)
+        assert snap.double_blink_count == 0
+        assert snap.blink_count >= 15
+
+
+# ------------------------------------------------- secuencia guiada
+
+
+def test_secuencia_guiada_pasa_por_sus_fases() -> None:
+    from neurodac import mindmetric_sequence as seq
+
+    assert seq.phase_at(0.0).key == "preparate"
+    first = seq.onsets()[0]
+    assert seq.phase_at(first + 0.1).key == "cierra" and seq.phase_at(first + 0.1).round == 1
+    assert seq.phase_at(first + seq.CLOSED_S + 0.1).key == "abre"
+    assert seq.phase_at(seq.total_s() + 1).key == "listo"
+    assert len(seq.onsets()) == seq.ROUNDS
+
+
+def test_secuencia_guiada_marca_cada_cierre(page) -> None:
+    from neurodac import mindmetric_sequence as seq
+
+    history = SessionHistory(connected_at=0.0)
+    page._sequences["prueba"] = {"start": 100.0, "marked": set()}
+    try:
+        phase = page._advance_sequence("prueba", history, 100.0 + seq.total_s() + 1)
+    finally:
+        page._sequences.pop("prueba", None)
+    assert phase.key == "listo"
+    assert history.stimulus_response(1e9).pending == 0
+    assert len(history._marks) == seq.ROUNDS
+
+
+def test_salidas_de_la_secuencia(page) -> None:
+    from neurodac import mindmetric_sequence as seq
+
+    out = page.demo_outputs("estimulo", None, None, 1, None, seq.phase_at(seq.onsets()[0] + 1))
+    cue_text, cue_class, count = out[5], out[6], out[7]
+    assert cue_text == text("organizacion", "demos", "estimulo", "guiada", "cierra")
+    assert cue_class == "mm-cue is-cierra"
+    assert count == str(int(seq.CLOSED_S - 1))

@@ -14,6 +14,7 @@ solo con `html`, `dcc` y `assets/mindmetric.css`, que viajan con el repositorio.
 
 from __future__ import annotations
 
+import math
 import threading
 import time
 
@@ -22,6 +23,7 @@ import numpy as np
 import plotly.graph_objs as go
 from dash import ALL, Input, Output, Patch, State, ctx, dcc, html, no_update
 
+from neurodac import mindmetric_sequence as sequence
 from neurodac import mindmetric_theme as theme
 from neurodac.acquisition import registry
 from neurodac.content import mindmetric as text
@@ -83,6 +85,8 @@ _state_lock = threading.RLock()
 _histories: dict[str, SessionHistory] = {}
 _last_snapshots: dict[str, Snapshot] = {}
 _funnel = StandFunnel()
+#: Secuencias guiadas en curso, por sesión: inicio y cierres ya marcados.
+_sequences: dict[str, dict] = {}
 _funnel_shown: list = [None]
 
 AUDIENCES = ("persona", "empresa", "medimos")
@@ -416,8 +420,66 @@ def _demo_overlay() -> html.Div:
                     children=[
                         html.H2(stimulus["titulo"]),
                         html.P(stimulus["instruccion"], className="mm-lead"),
-                        html.Button(stimulus["boton"], id="mm-mark", className="mm-btn is-primary"),
-                        _graph("mm-stimulus", stimulus_figure(), "38vh"),
+                        html.Div(
+                            className="mm-segs",
+                            role="group",
+                            children=[
+                                html.Button(
+                                    stimulus["modos"]["guiada"],
+                                    id="mm-mode-guiada",
+                                    className="mm-seg is-active",
+                                ),
+                                html.Button(
+                                    stimulus["modos"]["libre"],
+                                    id="mm-mode-libre",
+                                    className="mm-seg",
+                                ),
+                            ],
+                        ),
+                        html.Div(
+                            id="mm-mode-guiada-area",
+                            className="mm-guided",
+                            children=[
+                                html.Div(
+                                    id="mm-cue",
+                                    className="mm-cue is-idle",
+                                    children=[
+                                        html.Div(
+                                            stimulus["guiada"]["en_espera"],
+                                            id="mm-cue-text",
+                                            className="mm-cue-text",
+                                        ),
+                                        html.Div(id="mm-cue-count", className="mm-cue-count"),
+                                        html.Div(id="mm-cue-round", className="mm-meta"),
+                                    ],
+                                ),
+                                html.Div(
+                                    className="mm-guided-actions",
+                                    children=[
+                                        html.Button(
+                                            stimulus["guiada"]["empezar"],
+                                            id="mm-seq-start",
+                                            className="mm-btn is-primary",
+                                        ),
+                                        html.Span(stimulus["guiada"]["nota"], className="mm-meta"),
+                                    ],
+                                ),
+                            ],
+                        ),
+                        html.Div(
+                            id="mm-mode-libre-area",
+                            className="mm-free is-hidden",
+                            children=[
+                                html.Ol(
+                                    className="mm-steps",
+                                    children=[html.Li(t) for t in stimulus["libre"]["pasos"]],
+                                ),
+                                html.Button(
+                                    stimulus["boton"], id="mm-mark", className="mm-btn is-primary"
+                                ),
+                            ],
+                        ),
+                        _graph("mm-stimulus", stimulus_figure(), "28vh"),
                         html.Div(
                             className="mm-demo-foot",
                             children=[
@@ -558,6 +620,10 @@ def _operator_panel() -> html.Aside:
                 ],
             ),
             html.P(op["rotar_nota"], className="mm-meta"),
+            html.Div(
+                className="mm-op-actions",
+                children=[html.Button(op["tema_claro"], id="mm-theme-toggle", className="mm-btn")],
+            ),
         ],
     )
 
@@ -580,6 +646,7 @@ def group_card(group_key: str) -> list:
 
 
 layout = html.Div(
+    id="mm-root",
     className="mm-root",
     children=[
         _header(),
@@ -595,6 +662,8 @@ layout = html.Div(
         dcc.Store(id="mm-audience", data="persona"),
         dcc.Store(id="mm-demo-kind", data=None),
         dcc.Store(id="mm-ack", data=None),
+        # El tema se recuerda en el navegador de esta laptop.
+        dcc.Store(id="mm-theme", storage_type="local", data="oscuro"),
     ],
 )
 
@@ -673,14 +742,15 @@ def choose_source(_real, _sim):
     State("mm-source-kind", "data"),
     State("mm-port", "value"),
     State("mm-session", "data"),
+    State("mm-theme", "data"),
     prevent_initial_call=True,
 )
-def manage_connection(_connect, _stop, source_kind, port, current):
+def manage_connection(_connect, _stop, source_kind, port, current, theme_name=None):
     """Conecta o detiene delegando en el registro; no abre nada por su cuenta."""
     op = text("operacion")
     # Sin sesion, las graficas se vacian: una senal congelada aparentaria
     # seguir en vivo.
-    idle = (visitor("desconectada"), "mm-gate", *_empty_figures())
+    idle = (visitor("desconectada"), "mm-gate", *_empty_figures(theme_name))
     if ctx.triggered_id == "mm-stop":
         if current:
             registry.stop(current)
@@ -703,7 +773,7 @@ def manage_connection(_connect, _stop, source_kind, port, current):
         _histories[name] = SessionHistory(time.monotonic())
         _last_snapshots.pop(name, None)
     message = _message(op["conectada"].format(nombre=name), "is-ok")
-    return message, False, name, no_update, no_update, *_empty_figures()
+    return message, False, name, no_update, no_update, *_empty_figures(theme_name)
 
 
 @dash.callback(
@@ -810,9 +880,10 @@ def show_source(name):
     Input("mm-interval", "n_intervals"),
     State("mm-session", "data"),
     State("mm-audience", "data"),
+    State("mm-theme", "data"),
     prevent_initial_call=True,
 )
-def refresh_measurement(n, name, audience):
+def refresh_measurement(n, name, audience, theme_name=None):
     """Actualiza "Como lo medimos" solo cuando esta a la vista."""
     skip = (no_update,) * 7
     if audience != "medimos" or not name or (n or 0) % MEASURE_EVERY:
@@ -825,7 +896,9 @@ def refresh_measurement(n, name, audience):
         view = history.view(time.monotonic())
         counts = _funnel.counts
     iaf = snap.iaf_hz if _analyzer(name).has_baseline else None
-    spectrogram = spectrogram_patch(view, iaf) if n % SPECTROGRAM_EVERY == 0 else no_update
+    spectrogram = (
+        spectrogram_patch(view, iaf, theme_name) if n % SPECTROGRAM_EVERY == 0 else no_update
+    )
     exponent = (
         ""
         if snap.exponent is None
@@ -838,7 +911,7 @@ def refresh_measurement(n, name, audience):
     return (
         spectrogram,
         fit_patch(snap),
-        track_patch(view),
+        track_patch(view, theme_name),
         quality_children(view),
         exponent,
         funnel,
@@ -935,37 +1008,161 @@ def simulate_double_blink(clicks, name):
     Output("mm-double-count", "children"),
     Output("mm-stimulus", "figure"),
     Output("mm-stim-count", "children"),
+    Output("mm-cue-text", "children"),
+    Output("mm-cue", "className"),
+    Output("mm-cue-count", "children"),
+    Output("mm-cue-round", "children"),
+    Output("mm-seq-start", "children"),
     Input("mm-interval", "n_intervals"),
     State("mm-session", "data"),
     State("mm-demo-kind", "data"),
+    State("mm-theme", "data"),
     prevent_initial_call=True,
 )
-def refresh_demo(n, name, kind):
+def refresh_demo(n, name, kind, theme_name=None):
     """Actualiza la demostración abierta. La luz responde en cada ciclo."""
     if not kind or not name:
-        return (no_update,) * 5
+        return (no_update,) * 10
+    now = time.monotonic()
     with _state_lock:
         snap = _last_snapshots.get(name)
         history = _histories.get(name)
-        response = history.stimulus_response(time.monotonic()) if history else None
-    return demo_outputs(kind, snap, response, n or 0)
+        phase = _advance_sequence(name, history, now)
+        response = history.stimulus_response(now) if history else None
+    return demo_outputs(kind, snap, response, n or 0, theme_name, phase)
 
 
-def demo_outputs(kind: str, snap: Snapshot | None, response, n: int) -> tuple:
+def _advance_sequence(name: str, history: SessionHistory | None, now: float):
+    """Marca solos los cierres de ojos que ya pasaron y devuelve la fase."""
+    run = _sequences.get(name)
+    if run is None:
+        return None
+    elapsed = now - run["start"]
+    if history is not None:
+        for k, onset in enumerate(sequence.onsets()):
+            if elapsed >= onset and k not in run["marked"]:
+                history.mark_stimulus(run["start"] + onset)
+                run["marked"].add(k)
+    return sequence.phase_at(elapsed)
+
+
+def demo_outputs(
+    kind: str, snap: Snapshot | None, response, n: int, theme_name=None, phase=None
+) -> tuple:
     """Salidas de la demostración abierta; puro para poder probarlo."""
     control = text("organizacion", "demos", "control")
+    guided = text("organizacion", "demos", "estimulo", "guiada")
     lamp = label = count = graph = stim = no_update
+    cue_text = cue_class = cue_count = cue_round = seq_label = no_update
+    if kind == "estimulo":
+        if phase is None:
+            cue_text, cue_class, cue_count, cue_round = (
+                guided["en_espera"],
+                "mm-cue is-idle",
+                "",
+                "",
+            )
+            seq_label = guided["empezar"]
+        else:
+            cue_text = guided[phase.key]
+            cue_class = f"mm-cue is-{phase.key}"
+            cue_count = "" if phase.key == "listo" else f"{math.ceil(phase.remaining_s)}"
+            cue_round = (
+                "" if phase.round == 0 else guided["ronda"].format(i=phase.round, n=sequence.ROUNDS)
+            )
+            seq_label = guided["empezar"] if phase.key == "listo" else guided["detener"]
     if kind == "control" and snap is not None:
         on = snap.double_blink_count % 2 == 1
         lamp = "mm-lamp is-on" if on else "mm-lamp"
         label = control["encendida"] if on else control["apagada"]
         count = control["contador"].format(n=snap.double_blink_count)
     if kind == "estimulo" and response is not None and n % MEASURE_EVERY == 0:
-        graph = stimulus_patch(response)
+        graph = stimulus_patch(response, theme_name)
         stim = text("organizacion", "demos", "estimulo", "conteo").format(
             n=len(response.curves), p=response.pending
         )
-    return lamp, label, count, graph, stim
+    return lamp, label, count, graph, stim, cue_text, cue_class, cue_count, cue_round, seq_label
+
+
+@dash.callback(
+    Output("mm-mode-guiada", "className"),
+    Output("mm-mode-libre", "className"),
+    Output("mm-mode-guiada-area", "className"),
+    Output("mm-mode-libre-area", "className"),
+    Input("mm-mode-guiada", "n_clicks"),
+    Input("mm-mode-libre", "n_clicks"),
+    prevent_initial_call=True,
+)
+def choose_stimulus_mode(*_clicks):
+    """Guiada (ojos cerrados, marcas solas) o libre (el presentador marca)."""
+    if ctx.triggered_id == "mm-mode-libre":
+        return "mm-seg", "mm-seg is-active", "mm-guided is-hidden", "mm-free"
+    return "mm-seg is-active", "mm-seg", "mm-guided", "mm-free is-hidden"
+
+
+@dash.callback(
+    Output("mm-ack", "data", allow_duplicate=True),
+    Input("mm-seq-start", "n_clicks"),
+    State("mm-session", "data"),
+    prevent_initial_call=True,
+)
+def toggle_sequence(clicks, name):
+    """Empieza la secuencia guiada, o la detiene si está en curso."""
+    if not name:
+        return clicks
+    now = time.monotonic()
+    with _state_lock:
+        run = _sequences.get(name)
+        running = run is not None and now - run["start"] < sequence.total_s()
+        if running:
+            _sequences.pop(name, None)
+        else:
+            _sequences[name] = {"start": now, "marked": set()}
+    return clicks
+
+
+@dash.callback(
+    Output("mm-theme", "data"),
+    Input("mm-theme-toggle", "n_clicks"),
+    State("mm-theme", "data"),
+    prevent_initial_call=True,
+)
+def toggle_theme(_clicks, current):
+    """Alterna entre el tema oscuro y el claro."""
+    return "oscuro" if current == "claro" else "claro"
+
+
+@dash.callback(
+    Output("mm-root", "className"),
+    Output("mm-theme-toggle", "children"),
+    Output("mm-trace", "figure", allow_duplicate=True),
+    Output("mm-spectrum", "figure", allow_duplicate=True),
+    Output("mm-spark", "figure", allow_duplicate=True),
+    Output("mm-spectrogram", "figure", allow_duplicate=True),
+    Output("mm-fit", "figure", allow_duplicate=True),
+    Output("mm-track", "figure", allow_duplicate=True),
+    Output("mm-stimulus", "figure", allow_duplicate=True),
+    Input("mm-theme", "data"),
+    prevent_initial_call="initial_duplicate",
+)
+def apply_theme(theme_name):
+    """Aplica el tema a la página y redibuja las gráficas con sus colores."""
+    op = text("operacion")
+    light = theme_name == "claro"
+    figures = [
+        trace_figure(),
+        spectrum_figure(),
+        spark_figure(),
+        spectrogram_figure(),
+        fit_figure(),
+        track_figure(),
+        stimulus_figure(),
+    ]
+    return (
+        "mm-root is-light" if light else "mm-root",
+        op["tema_oscuro"] if light else op["tema_claro"],
+        *[_themed(f, theme_name) for f in figures],
+    )
 
 
 @dash.callback(
@@ -1052,14 +1249,21 @@ def _spectrum_patch(snap: Snapshot) -> object:
     return patch
 
 
-def _empty_figures() -> tuple:
+def _themed(figure: go.Figure, theme_name: str | None) -> go.Figure:
+    """La figura con los colores del tema elegido."""
+    if theme_name != "claro":
+        return figure
+    return go.Figure(theme.recolor(figure.to_plotly_json(), theme_name))
+
+
+def _empty_figures(theme_name: str | None = None) -> tuple:
     """Figuras y textos vacios: sin sesion no se muestra senal congelada."""
     return (
-        trace_figure(),
-        spectrum_figure(),
-        spectrogram_figure(),
-        fit_figure(),
-        track_figure(),
+        _themed(trace_figure(), theme_name),
+        _themed(spectrum_figure(), theme_name),
+        _themed(spectrogram_figure(), theme_name),
+        _themed(fit_figure(), theme_name),
+        _themed(track_figure(), theme_name),
         quality_children(None),
         "",
     )
