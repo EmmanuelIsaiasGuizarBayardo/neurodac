@@ -22,9 +22,10 @@ import numpy as np
 import plotly.graph_objs as go
 from dash import ALL, Input, Output, Patch, State, ctx, dcc, html, no_update
 
+from neurodac import mindmetric_theme as theme
 from neurodac.acquisition import registry
 from neurodac.content import mindmetric as text
-from neurodac.content import notice, render, visitor
+from neurodac.content import visitor
 from neurodac.mindmetric_analysis import (
     ALPHA_HALF_WIDTH_HZ,
     DISPLAY_S,
@@ -48,7 +49,7 @@ from neurodac.mindmetric_sim import MindMetricSimulatedSource
 from neurodac.mindmetric_views import (
     fit_figure,
     fit_patch,
-    funnel_figure,
+    funnel_children,
     measurement_view,
     quality_children,
     spectrogram_figure,
@@ -70,22 +71,14 @@ dash.register_page(
 SIM_NAME = "mindmetric-simulada"
 TICK_MS = 150
 
-#: Colores de datos de figuras-cientificas, categorical(6) con Petroff (2024).
-TRACE_COLOR = "#5790fc"
-ALPHA_BAND_COLOR = "#f89c20"
-ARTIFACT_COLOR = "#e42536"
-INK = "#142328"
-MUTED = "#52646a"
-RULE = "#d9e0de"
-
 TRACE_RANGE_UV = 100.0
 
 _analyzers: dict[str, LiveAnalyzer] = {}
 _analyzers_lock = threading.Lock()
 _pilot = simulate_pilot()
 
-#: Estado de la vista "Como lo medimos". El candado protege el analizador y el
-#: historial, porque dos callbacks los leen y escriben en hilos distintos.
+#: Estado de las vistas en vivo. El candado protege el analizador y el
+#: historial, porque varios callbacks los leen y escriben en hilos distintos.
 _state_lock = threading.RLock()
 _histories: dict[str, SessionHistory] = {}
 _last_snapshots: dict[str, Snapshot] = {}
@@ -93,13 +86,9 @@ _funnel = StandFunnel()
 _funnel_shown: list = [None]
 
 AUDIENCES = ("persona", "empresa", "medimos")
-#: Segundos que cada aplicación queda resaltada en la vista para
-#: organizaciones. Es solo CSS: no hay callback.
-APP_SPOTLIGHT_S = 3
-#: Tarjetas de aplicaciones que abren una demostración en vivo.
+#: Aplicaciones que abren una demostración en vivo.
 DEMO_CARDS = {"control": "control", "consumidores": "estimulo"}
-#: La vista de medicion se refresca cada 2 ciclos y el espectrograma cada 4:
-#: es la parte pesada y a ~1.6 Hz se ve fluido.
+#: Las vistas secundarias se refrescan cada 2 ciclos y el espectrograma cada 4.
 MEASURE_EVERY = 2
 SPECTROGRAM_EVERY = 4
 
@@ -113,56 +102,67 @@ def _analyzer(name: str, *, reset: bool = False) -> LiveAnalyzer:
 
 
 # =============================================================== figuras
+# Sistema visual: tema Console de Hallmark (mindmetric_theme.py). Azul frío
+# para lo que mide el instrumento, ámbar para lo que hace una persona, rojo
+# solo para lo que el análisis no usa.
 
 
 def _base_layout(**axes) -> go.Layout:
     return go.Layout(
-        margin={"t": 8, "l": 52, "r": 12, "b": 40},
+        margin={"t": 4, "l": 62, "r": 8, "b": 28},
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
-        font={"family": "Outfit, Segoe UI, sans-serif", "color": MUTED, "size": 12},
+        font={"family": theme.FONT_MEASURED, "color": theme.MUTED, "size": 11},
         showlegend=False,
         uirevision="mm",
         **axes,
     )
 
 
+def _axis(**extra) -> dict:
+    return {
+        "gridcolor": theme.RULE,
+        "zeroline": False,
+        "fixedrange": True,
+        "linecolor": theme.RULE,
+        **extra,
+    }
+
+
 def trace_figure() -> go.Figure:
-    """Senal filtrada; el artefacto se dibuja encima en otro color."""
-    axis = {"gridcolor": RULE, "zeroline": False, "fixedrange": True}
+    """Señal filtrada; el artefacto se dibuja encima en rojo."""
     return go.Figure(
         data=[
-            go.Scatter(x=[], y=[], mode="lines", line={"color": TRACE_COLOR, "width": 1.3}),
-            go.Scatter(x=[], y=[], mode="lines", line={"color": ARTIFACT_COLOR, "width": 1.8}),
+            go.Scatter(x=[], y=[], mode="lines", line={"color": theme.COOL, "width": 1.3}),
+            go.Scatter(x=[], y=[], mode="lines", line={"color": theme.BAD, "width": 1.6}),
         ],
         layout=_base_layout(
-            xaxis={**axis, "range": [-DISPLAY_S, 0], "title": {"text": "s"}},
-            yaxis={
-                **axis,
-                "range": [-TRACE_RANGE_UV, TRACE_RANGE_UV],
-                "title": {"text": "µV"},
-                "zeroline": True,
-                "zerolinecolor": RULE,
-            },
+            xaxis=_axis(range=[-DISPLAY_S, 0], ticksuffix=" s"),
+            yaxis=_axis(
+                range=[-TRACE_RANGE_UV, TRACE_RANGE_UV],
+                ticksuffix=" µV",
+                dtick=50,
+                zeroline=True,
+                zerolinecolor=theme.RULE_2,
+            ),
         ),
     )
 
 
 def spectrum_figure() -> go.Figure:
-    """Espectro suavizado con la banda alfa sombreada."""
-    axis = {"gridcolor": RULE, "zeroline": False, "fixedrange": True}
+    """Espectro de la ventana completa con la banda alfa sombreada."""
     figure = go.Figure(
-        data=[go.Scatter(x=[], y=[], mode="lines", line={"color": INK, "width": 1.6})],
+        data=[go.Scatter(x=[], y=[], mode="lines", line={"color": theme.INK_2, "width": 1.5})],
         layout=_base_layout(
-            xaxis={**axis, "range": list(SPECTRUM_DISPLAY_HZ), "title": {"text": "Hz"}},
-            yaxis={**axis, "title": {"text": "dB"}},
+            xaxis=_axis(range=list(SPECTRUM_DISPLAY_HZ), ticksuffix=" Hz"),
+            yaxis=_axis(ticksuffix=" dB", nticks=4),
         ),
     )
     figure.add_vrect(
         x0=IAF_DEFAULT_HZ - ALPHA_HALF_WIDTH_HZ,
         x1=IAF_DEFAULT_HZ + ALPHA_HALF_WIDTH_HZ,
-        fillcolor=ALPHA_BAND_COLOR,
-        opacity=0.18,
+        fillcolor=theme.COOL_SOFT,
+        opacity=1,
         line_width=0,
         layer="below",
     )
@@ -173,7 +173,7 @@ def spark_figure() -> go.Figure:
     """Traza mínima de los últimos 2 s, para la etapa "Señal" del flujo."""
     hidden = {"visible": False, "fixedrange": True}
     return go.Figure(
-        data=[go.Scatter(x=[], y=[], mode="lines", line={"color": TRACE_COLOR, "width": 1.2})],
+        data=[go.Scatter(x=[], y=[], mode="lines", line={"color": theme.COOL, "width": 1.2})],
         layout=go.Layout(
             margin={"t": 0, "l": 0, "r": 0, "b": 0},
             paper_bgcolor="rgba(0,0,0,0)",
@@ -202,14 +202,14 @@ def _audience_button(key: str, active: bool) -> html.Button:
     return html.Button(
         text("vistas", key),
         id=f"mm-aud-{key}",
-        className="mm-switch-option is-active" if active else "mm-switch-option",
+        className="mm-tab is-active" if active else "mm-tab",
         **{"aria-pressed": "true" if active else "false"},
     )
 
 
 def _header() -> html.Header:
     return html.Header(
-        className="mm-header",
+        className="mm-bar",
         children=[
             html.Div(
                 className="mm-brand",
@@ -218,24 +218,33 @@ def _header() -> html.Header:
                     html.Span(text("marca", "respaldo"), className="mm-brand-by"),
                 ],
             ),
-            html.Div(
-                className="mm-switch",
-                role="group",
+            html.Nav(
+                className="mm-tabs",
                 children=[_audience_button(key, key == "persona") for key in AUDIENCES],
             ),
             html.Div(
-                className="mm-header-end",
+                className="mm-bar-end",
                 children=[
                     html.Span(
-                        text("fuente", "sin_fuente"), id="mm-source", className="mm-source is-off"
+                        text("fuente", "sin_fuente"), id="mm-source", className="mm-chip is-off"
                     ),
-                    html.Button(
-                        text("operacion", "abrir"), id="mm-op-open", className="mm-op-button"
-                    ),
+                    html.Button(text("operacion", "abrir"), id="mm-op-open", className="mm-btn"),
                 ],
             ),
         ],
     )
+
+
+def _panel_head(title: str, meta: str | None = None, extra: list | None = None) -> html.Div:
+    children = [html.H2(title)]
+    if meta:
+        children.append(html.Span(meta, className="mm-meta"))
+    return html.Div(className="mm-panel-head", children=children + (extra or []))
+
+
+def _excluded_chip() -> html.Span:
+    # Solo se ve cuando el panel trae la clase is-excluded.
+    return html.Span(text("avisos", "excluida"), className="mm-chip is-bad mm-excluded-chip")
 
 
 def _gauge() -> html.Div:
@@ -262,42 +271,38 @@ def _gauge() -> html.Div:
     )
 
 
-def _plot_card(title: str, note: str, graph: dcc.Graph, card_id: str | None = None) -> html.Div:
-    children = [html.H2(title), html.P(render(note), className="mm-note"), graph]
-    if card_id:
-        # El aviso solo se ve cuando la tarjeta trae la clase is-excluded.
-        children.append(html.Div(text("avisos", "excluida"), className="mm-excluded-badge"))
-    extra = {"id": card_id} if card_id else {}
-    return html.Div(className="mm-plot", children=children, **extra)
-
-
 def _persona_view() -> html.Section:
     return html.Section(
         id="mm-view-persona",
-        className="mm-persona",
+        className="mm-view mm-persona",
         children=[
-            html.Div(notice("simulada"), id="mm-sim-notice", className="mm-sim-notice is-hidden"),
             html.Div(
-                className="mm-plots",
+                className="mm-panel mm-span-trace",
                 children=[
-                    _plot_card(
-                        text("persona", "senal_titulo"),
-                        text("persona", "senal_nota"),
-                        _graph("mm-trace", trace_figure(), "30vh"),
+                    _panel_head(
+                        text("persona", "senal"),
+                        text("persona", "senal_meta"),
                     ),
-                    _plot_card(
-                        text("persona", "espectro_titulo"),
-                        text("persona", "espectro_nota"),
-                        _graph("mm-spectrum", spectrum_figure(), "22vh"),
-                        card_id="mm-spectrum-card",
-                    ),
+                    _graph("mm-trace", trace_figure(), "100%"),
                 ],
             ),
             html.Div(
-                className="mm-instrument",
+                id="mm-spectrum-card",
+                className="mm-panel mm-span-spectrum",
+                children=[
+                    _panel_head(
+                        text("persona", "espectro"),
+                        text("persona", "espectro_meta"),
+                        [_excluded_chip()],
+                    ),
+                    _graph("mm-spectrum", spectrum_figure(), "100%"),
+                ],
+            ),
+            html.Div(
+                className="mm-panel mm-span-reading mm-reading-panel",
                 children=[
                     html.Div(visitor("desconectada"), id="mm-gate", className="mm-gate"),
-                    html.H2(text("persona", "indicador_titulo")),
+                    _panel_head(text("persona", "indicador")),
                     html.Div(id="mm-zone", className="mm-zone is-empty"),
                     _gauge(),
                     html.P(id="mm-status", className="mm-status"),
@@ -306,12 +311,17 @@ def _persona_view() -> html.Section:
                         className="mm-progress is-hidden",
                         children=html.Div(id="mm-progress-fill", className="mm-progress-fill"),
                     ),
-                    html.Button(
-                        text("persona", "boton_medir"), id="mm-baseline", className="mm-action"
+                    html.Div(
+                        className="mm-reading-foot",
+                        children=[
+                            html.Button(
+                                text("persona", "boton_medir"),
+                                id="mm-baseline",
+                                className="mm-btn is-primary",
+                            ),
+                            html.Span(text("persona", "linea_base_meta"), className="mm-meta"),
+                        ],
                     ),
-                    html.P(text("persona", "indicador_nota"), className="mm-note"),
-                    html.P(text("persona", "linea_base_abreviada"), className="mm-note"),
-                    html.P(text("avisos", "no_se_guarda"), className="mm-note"),
                 ],
             ),
         ],
@@ -322,62 +332,48 @@ def _group_button(key: str, label: str, active: bool) -> html.Button:
     return html.Button(
         label,
         id={"type": "mm-group", "key": key},
-        className="mm-group-option is-active" if active else "mm-group-option",
+        className="mm-seg is-active" if active else "mm-seg",
     )
 
 
-def _stage(key: str, number: int, live: object) -> html.Div:
-    stage = text("organizacion", "etapas", key)
+def _flow_row(key: str, value: object) -> html.Div:
     return html.Div(
-        className="mm-stage",
-        style={"--mm-stage-delay": f"{(number - 1) * 0.5}s"},
-        children=[
-            html.Div(str(number), className="mm-stage-num"),
-            html.H3(stage["titulo"]),
-            html.P(stage["texto"], className="mm-note"),
-            live,
-        ],
+        className="mm-flow-row",
+        children=[html.Span(text("organizacion", "etapas", key), className="mm-flow-name"), value],
     )
 
 
-def _flow_link() -> html.Div:
-    return html.Div(className="mm-flow-link", children=[html.Span(), html.Span(), html.Span()])
+def _live_value(index: int) -> html.Span:
+    return html.Span(
+        text("organizacion", "vivo", "sin_conexion"),
+        id=f"mm-stage-live-{index}",
+        className="mm-measured",
+    )
 
 
-def _app_card(key: str, index: int) -> html.Div:
+def _app_row(key: str) -> html.Tr:
     app = text("organizacion", "apps", key)
-    return html.Div(
-        className="mm-app",
-        style={"animationDelay": f"{index * APP_SPOTLIGHT_S}s"},
+    action = (
+        html.Button(
+            text("organizacion", "probar"),
+            id=f"mm-try-{DEMO_CARDS[key]}",
+            className="mm-btn is-small",
+        )
+        if key in DEMO_CARDS
+        else None
+    )
+    return html.Tr(
+        className=f"is-{app['estado']}",
         children=[
-            html.Div(
-                className="mm-app-top",
-                children=[
-                    html.Span(
-                        text("organizacion", "estados", app["estado"]),
-                        className=f"mm-app-status is-{app['estado']}",
-                    ),
-                    *(
-                        [
-                            html.Button(
-                                text("organizacion", "probar"),
-                                id=f"mm-try-{DEMO_CARDS[key]}",
-                                className="mm-try",
-                            )
-                        ]
-                        if key in DEMO_CARDS
-                        else []
-                    ),
-                ],
-            ),
-            html.H3(app["titulo"]),
-            html.P(app["texto"], className="mm-note"),
+            html.Td(app["titulo"]),
+            html.Td(text("organizacion", "estados", app["estado"]), className="mm-app-state"),
+            html.Td(action, className="mm-app-action"),
         ],
     )
 
 
 def _demo_overlay() -> html.Div:
-    """Demostraciones en vivo que abren las tarjetas con "Probar"."""
+    """Demostraciones en vivo que abren las filas con "Probar"."""
     control = text("organizacion", "demos", "control")
     stimulus = text("organizacion", "demos", "estimulo")
     return html.Div(
@@ -387,16 +383,14 @@ def _demo_overlay() -> html.Div:
             className="mm-demo-card",
             children=[
                 html.Button(
-                    text("organizacion", "demos", "cerrar"),
-                    id="mm-demo-close",
-                    className="mm-op-button",
+                    text("organizacion", "demos", "cerrar"), id="mm-demo-close", className="mm-btn"
                 ),
                 html.Div(
                     id="mm-demo-control",
                     className="mm-demo-panel is-hidden",
                     children=[
                         html.H2(control["titulo"]),
-                        html.P(control["instruccion"], className="mm-demo-lead"),
+                        html.P(control["instruccion"], className="mm-lead"),
                         html.Div(
                             className="mm-lamp-row",
                             children=[
@@ -406,14 +400,14 @@ def _demo_overlay() -> html.Div:
                                         html.Div(
                                             control["apagada"],
                                             id="mm-lamp-label",
-                                            className="mm-figure",
+                                            className="mm-big",
                                         ),
-                                        html.P(id="mm-double-count", className="mm-note"),
+                                        html.Span(id="mm-double-count", className="mm-measured"),
                                     ]
                                 ),
                             ],
                         ),
-                        html.P(control["nota"], className="mm-note"),
+                        html.P(control["nota"], className="mm-meta"),
                     ],
                 ),
                 html.Div(
@@ -421,23 +415,20 @@ def _demo_overlay() -> html.Div:
                     className="mm-demo-panel is-hidden",
                     children=[
                         html.H2(stimulus["titulo"]),
-                        html.P(stimulus["instruccion"], className="mm-demo-lead"),
-                        html.Button(stimulus["boton"], id="mm-mark", className="mm-action"),
-                        _graph("mm-stimulus", stimulus_figure(), "34vh"),
-                        html.P(id="mm-stim-count", className="mm-note"),
-                        html.P(stimulus["nota"], className="mm-note"),
+                        html.P(stimulus["instruccion"], className="mm-lead"),
+                        html.Button(stimulus["boton"], id="mm-mark", className="mm-btn is-primary"),
+                        _graph("mm-stimulus", stimulus_figure(), "38vh"),
+                        html.Div(
+                            className="mm-demo-foot",
+                            children=[
+                                html.Span(id="mm-stim-count", className="mm-measured"),
+                                html.Span(stimulus["nota"], className="mm-meta"),
+                            ],
+                        ),
                     ],
                 ),
             ],
         ),
-    )
-
-
-def _live_text(index: int) -> html.Div:
-    return html.Div(
-        text("organizacion", "vivo", "sin_conexion"),
-        id=f"mm-stage-live-{index}",
-        className="mm-stage-live",
     )
 
 
@@ -446,75 +437,60 @@ def _company_view() -> html.Section:
     apps = list(text("organizacion", "apps").keys())
     return html.Section(
         id="mm-view-empresa",
-        className="mm-empresa is-hidden",
+        className="mm-view mm-org is-hidden",
         children=[
             html.Div(
-                className="mm-company-head",
-                children=[
-                    html.Div(
-                        [
-                            html.H2(text("organizacion", "titulo")),
-                            html.P(text("organizacion", "subtitulo"), className="mm-note"),
-                        ]
-                    ),
-                    html.Div(
-                        notice("simulada"),
-                        id="mm-sim-notice-org",
-                        className="mm-sim-notice is-hidden",
-                    ),
-                ],
-            ),
-            html.H3(text("organizacion", "flujo_titulo"), className="mm-section-title"),
-            html.Div(
                 id="mm-flow",
-                className="mm-flow",
+                className="mm-panel mm-flow",
                 children=[
-                    _stage("sensor", 1, _live_text(1)),
-                    _flow_link(),
-                    _stage("senal", 2, _graph("mm-spark", spark_figure(), "44px")),
-                    _flow_link(),
-                    _stage("limpieza", 3, _live_text(3)),
-                    _flow_link(),
-                    _stage("analisis", 4, _live_text(4)),
-                    _flow_link(),
-                    _stage(
+                    _panel_head(text("organizacion", "flujo")),
+                    _flow_row("sensor", _live_value(1)),
+                    _flow_row("senal", _graph("mm-spark", spark_figure(), "34px")),
+                    _flow_row("limpieza", _live_value(3)),
+                    _flow_row("analisis", _live_value(4)),
+                    _flow_row(
                         "resultado",
-                        5,
-                        html.Div(
-                            text("organizacion", "vivo", "resultado"), className="mm-stage-live"
-                        ),
+                        html.Span(text("organizacion", "vivo", "resultado"), className="mm-meta"),
                     ),
                 ],
             ),
-            html.H3(text("organizacion", "apps_titulo"), className="mm-section-title"),
             html.Div(
-                className="mm-apps",
-                style={"--mm-spotlight-cycle": f"{len(apps) * APP_SPOTLIGHT_S}s"},
-                children=[_app_card(key, i) for i, key in enumerate(apps)],
-            ),
-            _demo_overlay(),
-            html.Div(
-                className="mm-privacy",
+                className="mm-panel mm-apps",
                 children=[
-                    html.Div(
-                        [
-                            html.H3(text("organizacion", "privacidad_titulo")),
-                            html.P(text("organizacion", "privacidad_nota"), className="mm-note"),
-                            html.Div(text("empresa", "aviso_simulados"), className="mm-sim-notice"),
-                        ]
+                    _panel_head(text("organizacion", "apps_titulo")),
+                    html.Table(
+                        className="mm-table", children=html.Tbody([_app_row(k) for k in apps])
+                    ),
+                ],
+            ),
+            html.Div(
+                className="mm-panel mm-privacy",
+                children=[
+                    _panel_head(
+                        text("organizacion", "privacidad"),
+                        text("empresa", "aviso_simulados"),
                     ),
                     html.Div(
-                        className="mm-group-picker",
-                        role="group",
+                        className="mm-privacy-body",
                         children=[
-                            _group_button(g.key, groups[g.key], g is GROUPS[0]) for g in GROUPS
+                            html.Div(
+                                className="mm-segs",
+                                role="group",
+                                children=[
+                                    _group_button(g.key, groups[g.key], g is GROUPS[0])
+                                    for g in GROUPS
+                                ],
+                            ),
+                            html.Div(
+                                group_card(GROUPS[0].key),
+                                id="mm-group-card",
+                                className="mm-group-card",
+                            ),
                         ],
                     ),
-                    html.Div(
-                        group_card(GROUPS[0].key), id="mm-group-card", className="mm-group-card"
-                    ),
                 ],
             ),
+            _demo_overlay(),
         ],
     )
 
@@ -523,7 +499,7 @@ def _source_button(kind: str, label: str, active: bool) -> html.Button:
     return html.Button(
         label,
         id=f"mm-kind-{kind}",
-        className="mm-op-choice is-active" if active else "mm-op-choice",
+        className="mm-seg is-active" if active else "mm-seg",
     )
 
 
@@ -537,12 +513,12 @@ def _operator_panel() -> html.Aside:
                 className="mm-op-head",
                 children=[
                     html.H2(op["titulo"]),
-                    html.Button(op["cerrar"], id="mm-op-close", className="mm-op-close"),
+                    html.Button(op["cerrar"], id="mm-op-close", className="mm-btn"),
                 ],
             ),
             html.Div(op["fuente"], className="mm-op-label"),
             html.Div(
-                className="mm-op-choices",
+                className="mm-segs",
                 role="group",
                 children=[
                     _source_button("real", op["diadema"], True),
@@ -550,23 +526,21 @@ def _operator_panel() -> html.Aside:
                 ],
             ),
             html.Label(op["puerto"], htmlFor="mm-port", className="mm-op-label"),
-            dcc.Input(id="mm-port", type="text", placeholder="COM5", className="mm-op-input"),
+            dcc.Input(id="mm-port", type="text", placeholder="COM5", className="mm-input"),
             html.Div(
                 className="mm-op-actions",
                 children=[
-                    html.Button(op["conectar"], id="mm-connect", className="mm-op-connect"),
-                    html.Button(op["detener"], id="mm-stop", className="mm-op-stop"),
+                    html.Button(op["conectar"], id="mm-connect", className="mm-btn is-primary"),
+                    html.Button(op["detener"], id="mm-stop", className="mm-btn"),
                 ],
             ),
             html.Div(id="mm-op-status", className="mm-op-status"),
             html.Div(id="mm-op-quality", className="nd-quality mm-op-quality"),
-            html.P(id="mm-op-iaf", className="mm-op-note"),
-            html.P(op["guion_simulado"], className="mm-op-note"),
+            html.P(id="mm-op-iaf", className="mm-meta"),
+            html.P(op["guion_simulado"], className="mm-meta"),
             html.Div(
                 className="mm-op-actions",
-                children=[
-                    html.Button(op["simular_doble"], id="mm-sim-double", className="mm-op-choice"),
-                ],
+                children=[html.Button(op["simular_doble"], id="mm-sim-double", className="mm-btn")],
             ),
             html.Div(
                 className="mm-op-actions",
@@ -575,7 +549,7 @@ def _operator_panel() -> html.Aside:
                     html.Button(
                         op["rotar_activar"],
                         id="mm-autoplay",
-                        className="mm-op-choice",
+                        className="mm-btn",
                         **{
                             "data-label-on": op["rotar_activar"],
                             "data-label-off": op["rotar_desactivar"],
@@ -583,27 +557,25 @@ def _operator_panel() -> html.Aside:
                     ),
                 ],
             ),
-            html.P(op["rotar_nota"], className="mm-op-note"),
+            html.P(op["rotar_nota"], className="mm-meta"),
         ],
     )
 
 
 def group_card(group_key: str) -> list:
-    """Tarjeta de un grupo con las reglas de agregacion ya aplicadas."""
+    """Lectura de un grupo con las reglas de agregación ya aplicadas."""
     size = next(g.size for g in GROUPS if g.key == group_key)
     result = report(size, _pilot.participants(group_key, CURRENT_WEEK))
     if result.kind is ReportKind.SUPPRESSED:
-        figure = html.Div(text("empresa", "oculto"), className="mm-figure is-suppressed")
+        value = html.Div(text("empresa", "oculto"), className="mm-big is-muted")
     elif result.kind is ReportKind.RANGE:
-        figure = html.Div(
-            text("empresa", "rangos", result.range_key), className="mm-figure is-range"
-        )
+        value = html.Div(text("empresa", "rangos", result.range_key), className="mm-big is-text")
     else:
-        figure = html.Div(f"{result.percent} %", className="mm-figure")
+        value = html.Div(f"{result.percent} %", className="mm-reading")
     return [
-        html.Div(text("empresa", "tamano").format(n=size), className="mm-note"),
-        figure,
-        html.P(text("empresa", "reglas", result.kind.value), className="mm-rule"),
+        html.Span(text("empresa", "tamano").format(n=size), className="mm-meta"),
+        value,
+        html.Span(text("empresa", "reglas", result.kind.value), className="mm-meta"),
     ]
 
 
@@ -615,10 +587,7 @@ layout = html.Div(
             className="mm-main",
             children=[_persona_view(), _company_view(), measurement_view(_funnel.counts)],
         ),
-        html.Footer(
-            className="mm-footer",
-            children=[html.Span(text("limites")), html.Span(text("avisos", "prototipo"))],
-        ),
+        html.Footer(className="mm-foot", children=html.Span(text("limites"))),
         _operator_panel(),
         dcc.Interval(id="mm-interval", interval=TICK_MS, disabled=True),
         dcc.Store(id="mm-session", data=None),
@@ -646,10 +615,13 @@ def switch_audience(*_clicks):
     chosen = str(ctx.triggered_id).removeprefix("mm-aud-")
     if chosen not in AUDIENCES:
         chosen = "persona"
-    views = [f"mm-{key}" if key == chosen else f"mm-{key} is-hidden" for key in AUDIENCES]
-    buttons = [
-        "mm-switch-option is-active" if key == chosen else "mm-switch-option" for key in AUDIENCES
-    ]
+    view_class = {
+        "persona": "mm-view mm-persona",
+        "empresa": "mm-view mm-org",
+        "medimos": "mm-view mm-medimos",
+    }
+    views = [view_class[k] if k == chosen else view_class[k] + " is-hidden" for k in AUDIENCES]
+    buttons = ["mm-tab is-active" if key == chosen else "mm-tab" for key in AUDIENCES]
     pressed = ["true" if key == chosen else "false" for key in AUDIENCES]
     # Dash aplana las listas de Output: la respuesta va plana, en el mismo orden.
     return (*views, *buttons, *pressed, chosen)
@@ -677,7 +649,7 @@ def toggle_operator(_open, _close):
 )
 def choose_source(_real, _sim):
     """Diadema o simulada; con simulada el puerto no aplica."""
-    on, off = "mm-op-choice is-active", "mm-op-choice"
+    on, off = "mm-seg is-active", "mm-seg"
     if ctx.triggered_id == "mm-kind-sim":
         return "sim", off, on, True
     return "real", on, off, False
@@ -816,20 +788,15 @@ def refresh(_n, name):
 @dash.callback(
     Output("mm-source", "children"),
     Output("mm-source", "className"),
-    Output("mm-sim-notice", "className"),
-    Output("mm-sim-notice-medimos", "className"),
-    Output("mm-sim-notice-org", "className"),
     Input("mm-session", "data"),
 )
 def show_source(name):
     """La fuente se declara en pantalla; el aviso sale del nombre de la sesion."""
-    hidden = "mm-sim-notice is-hidden"
     if not name:
-        return text("fuente", "sin_fuente"), "mm-source is-off", hidden, hidden, hidden
+        return text("fuente", "sin_fuente"), "mm-chip is-off"
     if name == SIM_NAME:
-        shown = "mm-sim-notice"
-        return text("operacion", "simulada"), "mm-source is-sim", shown, shown, shown
-    return text("fuente", "en_vivo"), "mm-source is-live", hidden, hidden, hidden
+        return text("fuente", "simulada"), "mm-chip is-sim"
+    return text("fuente", "en_vivo"), "mm-chip is-live"
 
 
 @dash.callback(
@@ -838,7 +805,7 @@ def show_source(name):
     Output("mm-track", "figure"),
     Output("mm-quality", "children"),
     Output("mm-exponent", "children"),
-    Output("mm-funnel", "figure"),
+    Output("mm-funnel", "children"),
     Output("mm-fit-card", "className"),
     Input("mm-interval", "n_intervals"),
     State("mm-session", "data"),
@@ -867,7 +834,7 @@ def refresh_measurement(n, name, audience):
     funnel = no_update
     if counts != _funnel_shown[0]:
         _funnel_shown[0] = counts
-        funnel = funnel_figure(counts)
+        funnel = funnel_children(counts)
     return (
         spectrogram,
         fit_patch(snap),
@@ -875,7 +842,7 @@ def refresh_measurement(n, name, audience):
         quality_children(view),
         exponent,
         funnel,
-        _card_class(snap, view.clean_fraction is not None),
+        _card_class(snap, view.clean_fraction is not None, "mm-panel mm-span-fit"),
     )
 
 
@@ -1010,17 +977,17 @@ def demo_outputs(kind: str, snap: Snapshot | None, response, n: int) -> tuple:
 def show_group(_clicks):
     """Aplica las reglas de agregacion al grupo elegido."""
     key = ctx.triggered_id["key"] if ctx.triggered_id else GROUPS[0].key
-    classes = ["mm-group-option is-active" if g.key == key else "mm-group-option" for g in GROUPS]
+    classes = ["mm-seg is-active" if g.key == key else "mm-seg" for g in GROUPS]
     return group_card(key), classes
 
 
 # ============================================================== auxiliares
 
 
-def _card_class(snap: Snapshot, ready: bool) -> str:
+def _card_class(snap: Snapshot, ready: bool, base: str = "mm-panel mm-span-spectrum") -> str:
     """Marco rojo ligero cuando lo que se dibuja no entró al análisis."""
     excluded = ready and snap.display_spectrum_db is not None and not snap.window_used
-    return "mm-plot is-excluded" if excluded else "mm-plot"
+    return base + " is-excluded" if excluded else base
 
 
 def organization_live(snap: Snapshot | None, view, ready: bool, rate_hz: float) -> tuple:
@@ -1028,12 +995,12 @@ def organization_live(snap: Snapshot | None, view, ready: bool, rate_hz: float) 
     live = text("organizacion", "vivo")
     if snap is None or not ready:
         off = live["sin_conexion"]
-        return off, off, off, "mm-flow"
+        return off, off, off, "mm-panel mm-flow"
     sensor = live["tramas"].format(n=f"{rate_hz:.0f}")
     useful = 0.0 if view is None or view.clean_fraction is None else 100 * view.clean_fraction
     cleaning = live["limpieza"].format(n=snap.blink_count, p=f"{useful:.0f}")
     analysis = live["sin_base"] if snap.zone is None else text("persona", "zonas", snap.zone.value)
-    return sensor, cleaning, analysis, "mm-flow is-live"
+    return sensor, cleaning, analysis, "mm-panel mm-flow is-live"
 
 
 def _status_key(snap: Snapshot) -> str:

@@ -535,29 +535,29 @@ def _with_trigger(prop_id: str, func, *args):
 def test_cambio_de_audiencia_devuelve_una_salida_por_output(page) -> None:
     out = _with_trigger("mm-aud-medimos.n_clicks", page.switch_audience, None, None, 1)
     assert len(out) == 3 * len(page.AUDIENCES) + 1
-    assert out[2] == "mm-medimos"
+    assert out[2] == "mm-view mm-medimos"
     assert out[-1] == "medimos"
 
 
 def test_marco_rojo_solo_si_la_ventana_no_se_uso(page) -> None:
     clean, _ = _feed(LiveAnalyzer(), _eeg(4, 5.0, seed=18), 0.0)
-    assert page._card_class(clean, True) == "mm-plot"
+    assert page._card_class(clean, True) == "mm-panel mm-span-spectrum"
     x = _eeg(4, 5.0, seed=19)
     t = np.arange(x.size) / FS
     for center in np.arange(2.2, 4.0, 0.6):
         x += 200.0 * np.exp(-0.5 * ((t - center) / 0.06) ** 2)
     blinked, _ = _feed(LiveAnalyzer(), x, 0.0)
-    assert page._card_class(blinked, True) == "mm-plot is-excluded"
-    assert page._card_class(blinked, False) == "mm-plot"
+    assert page._card_class(blinked, True) == "mm-panel mm-span-spectrum is-excluded"
+    assert page._card_class(blinked, False) == "mm-panel mm-span-spectrum"
 
 
 def test_flujo_de_organizacion_sin_y_con_senal(page) -> None:
     off = page.organization_live(None, None, False, 0.0)
-    assert off[-1] == "mm-flow"
+    assert off[-1] == "mm-panel mm-flow"
     history, now = _history_run(_eeg(4, 5.0, seed=20))
     snap, _ = _feed(LiveAnalyzer(), _eeg(4, 5.0, seed=20), 0.0)
     sensor, cleaning, analysis, flow = page.organization_live(snap, history.view(now), True, 512.0)
-    assert flow == "mm-flow is-live"
+    assert flow == "mm-panel mm-flow is-live"
     assert "512" in sensor
     assert analysis == text("organizacion", "vivo", "sin_base")
 
@@ -566,7 +566,7 @@ def test_cada_aplicacion_tiene_un_estado_valido() -> None:
     estados = text("organizacion", "estados")
     for app in text("organizacion", "apps").values():
         assert app["estado"] in estados
-        assert app["titulo"] and app["texto"]
+        assert app["titulo"]
 
 
 # ---------------------------------------------- demostraciones en vivo

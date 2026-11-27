@@ -15,8 +15,8 @@ import numpy as np
 import plotly.graph_objs as go
 from dash import Patch, dcc, html, no_update
 
+from . import mindmetric_theme as theme
 from .content import mindmetric as text
-from .content import notice, render
 from .mindmetric_analysis import (
     ALPHA_HALF_WIDTH_HZ,
     SPECTRUM_DISPLAY_HZ,
@@ -39,7 +39,7 @@ __all__ = [
     "excluded_shapes",
     "fit_figure",
     "fit_patch",
-    "funnel_figure",
+    "funnel_children",
     "measurement_view",
     "quality_children",
     "spectrogram_figure",
@@ -50,17 +50,19 @@ __all__ = [
     "track_patch",
 ]
 
-TRACE_COLOR = "#5790fc"
-ALPHA_BAND_COLOR = "#f89c20"
-INK = "#142328"
-MUTED = "#52646a"
-RULE = "#d9e0de"
-ZONE_FILL = "rgba(87, 144, 252, 0.14)"
+# Tema Console (mindmetric_theme.py): frío para lo que mide el instrumento,
+# ámbar para lo que hace una persona, rojo solo para lo que no se usa.
+TRACE_COLOR = theme.COOL
+ALPHA_BAND_COLOR = theme.ACCENT
+INK = theme.INK
+MUTED = theme.MUTED
+RULE = theme.RULE
+ZONE_FILL = theme.COOL_SOFT
 #: Fondo del espectrograma mientras aún no hay un minuto de datos.
-GAP_COLOR = "#dfe5e3"
+GAP_COLOR = theme.PAPER_3
 #: Marco de los tramos que el análisis descarta: se ven, pero no se usan.
-EXCLUDED_LINE = "rgba(228, 37, 54, 0.85)"
-EXCLUDED_FILL = "rgba(228, 37, 54, 0.10)"
+EXCLUDED_LINE = theme.BAD
+EXCLUDED_FILL = "rgba(246, 109, 103, 0.10)"
 
 
 def excluded_shapes(spans: list[tuple[float, float]], y_ref: str = "paper") -> list[dict]:
@@ -82,7 +84,7 @@ def excluded_shapes(spans: list[tuple[float, float]], y_ref: str = "paper") -> l
     ]
 
 
-BASELINE_FILL = "rgba(82, 100, 106, 0.12)"
+BASELINE_FILL = "rgba(157, 162, 168, 0.10)"
 
 #: figuras_cientificas.sequential() (batlow), muestreado en 11 puntos.
 BATLOW = [
@@ -105,13 +107,13 @@ COLOR_RANGE_PCT = (5.0, 99.5)
 
 
 def _layout(**axes) -> go.Layout:
-    margin = axes.pop("margin", {"t": 6, "l": 50, "r": 12, "b": 36})
+    margin = axes.pop("margin", {"t": 4, "l": 54, "r": 8, "b": 28})
     plot_bg = axes.pop("plot_bgcolor", "rgba(0,0,0,0)")
     return go.Layout(
         margin=margin,
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor=plot_bg,
-        font={"family": "Outfit, Segoe UI, sans-serif", "color": MUTED, "size": 12},
+        font={"family": theme.FONT_MEASURED, "color": MUTED, "size": 11},
         showlegend=False,
         uirevision="mm-medimos",
         **axes,
@@ -119,7 +121,7 @@ def _layout(**axes) -> go.Layout:
 
 
 def _axis(**extra) -> dict:
-    return {"gridcolor": RULE, "zeroline": False, "fixedrange": True, **extra}
+    return {"gridcolor": RULE, "zeroline": False, "fixedrange": True, "linecolor": RULE, **extra}
 
 
 def _rounded(values: np.ndarray, digits: int = 2) -> list[float | None]:
@@ -139,7 +141,7 @@ def spectrogram_figure() -> go.Figure:
                 z=[[]],
                 colorscale=BATLOW,
                 hoverongaps=False,
-                colorbar={"title": {"text": "dB", "side": "right"}, "thickness": 10, "len": 0.9},
+                colorbar={"thickness": 8, "len": 0.9, "ticksuffix": " dB", "outlinewidth": 0},
             ),
             go.Scatter(
                 x=[],
@@ -152,10 +154,10 @@ def spectrogram_figure() -> go.Figure:
         layout=_layout(
             xaxis=_axis(
                 range=[-SPECTROGRAM_S, 0],
-                title={"text": text("medimos", "eje_hace")},
+                ticksuffix=" s",
                 showgrid=False,
             ),
-            yaxis=_axis(range=list(SPECTRUM_DISPLAY_HZ), title={"text": "Hz"}, showgrid=False),
+            yaxis=_axis(range=list(SPECTRUM_DISPLAY_HZ), ticksuffix=" Hz", showgrid=False),
             plot_bgcolor=GAP_COLOR,
         ),
     )
@@ -188,7 +190,7 @@ def fit_figure() -> go.Figure:
     """Espectro, recta aperiodica y la potencia periodica alfa sombreada."""
     return go.Figure(
         data=[
-            go.Scatter(x=[], y=[], mode="lines", line={"color": INK, "width": 1.6}),
+            go.Scatter(x=[], y=[], mode="lines", line={"color": theme.INK_2, "width": 1.5}),
             go.Scatter(
                 x=[], y=[], mode="lines", line={"color": MUTED, "width": 1.4, "dash": "dash"}
             ),
@@ -199,13 +201,13 @@ def fit_figure() -> go.Figure:
                 mode="lines",
                 line={"width": 0},
                 fill="tonexty",
-                fillcolor="rgba(248, 156, 32, 0.45)",
+                fillcolor=theme.COOL_SOFT,
                 hoverinfo="skip",
             ),
         ],
         layout=_layout(
-            xaxis=_axis(range=[2, 40], title={"text": "Hz"}),
-            yaxis=_axis(title={"text": "dB"}),
+            xaxis=_axis(range=[2, 40], ticksuffix=" Hz"),
+            yaxis=_axis(ticksuffix=" dB", nticks=4),
         ),
     )
 
@@ -283,7 +285,7 @@ def stimulus_patch(response: StimulusResponse) -> object:
             "mode": "lines",
             "x": x,
             "y": _rounded(c),
-            "line": {"color": "rgba(87, 144, 252, 0.28)", "width": 1},
+            "line": {"color": "rgba(110, 188, 252, 0.30)", "width": 1},
             "hoverinfo": "skip",
         }
         for c in response.curves[-MAX_STIMULUS_CURVES:]
@@ -341,7 +343,7 @@ def track_figure() -> go.Figure:
     return go.Figure(
         data=[go.Scatter(x=[], y=[], mode="lines", line={"color": TRACE_COLOR, "width": 2})],
         layout=_layout(
-            xaxis=_axis(range=[-TRACK_S, 0], title={"text": text("medimos", "eje_hace")}),
+            xaxis=_axis(range=[-TRACK_S, 0], ticksuffix=" s"),
             yaxis=_axis(
                 range=[-limit, limit],
                 showticklabels=False,
@@ -369,9 +371,7 @@ def track_patch(view: HistoryView) -> Patch:
     patch = Patch()
     patch["data"][0]["x"] = _rounded(view.track_t)
     patch["data"][0]["y"] = _rounded(view.track_z)
-    patch["layout"]["shapes"] = _track_shapes(view.baseline_spans) + excluded_shapes(
-        [s for s in view.excluded_spans if s[1] > -TRACK_S]
-    )
+    patch["layout"]["shapes"] = _track_shapes(view.baseline_spans)
     return patch
 
 
@@ -379,7 +379,7 @@ def track_patch(view: HistoryView) -> Patch:
 
 
 def quality_children(view: HistoryView | None) -> list:
-    """Tres cifras de calidad; "sin dato" cuando todavia no hay medicion."""
+    """Tres lecturas de calidad; "sin dato" cuando todavía no hay medición."""
     missing = text("medimos", "sin_dato")
     if view is None:
         clean, blinks, ready = missing, missing, missing
@@ -388,53 +388,30 @@ def quality_children(view: HistoryView | None) -> list:
         blinks = str(view.blinks)
         ready = missing if view.time_to_ready_s is None else f"{view.time_to_ready_s:.0f} s"
     return [
-        _figure_item(clean, text("medimos", "limpio")),
-        _figure_item(blinks, text("medimos", "parpadeos")),
-        _figure_item(ready, text("medimos", "tiempo_senal")),
+        _stat(clean, text("medimos", "limpio")),
+        _stat(blinks, text("medimos", "parpadeos")),
+        _stat(ready, text("medimos", "tiempo_senal")),
     ]
 
 
-def _figure_item(value: str, label: str) -> html.Div:
+def _stat(value: str, label: str) -> html.Div:
     return html.Div(
-        className="mm-kpi",
+        className="mm-stat",
         children=[
-            html.Div(value, className="mm-kpi-value"),
-            html.Div(label, className="mm-kpi-label"),
+            html.Div(value, className="mm-stat-value"),
+            html.Div(label, className="mm-stat-label"),
         ],
     )
 
 
-def funnel_figure(counts: FunnelCounts) -> go.Figure:
-    """Barras horizontales del embudo del stand, con porcentaje sobre el inicio."""
+def funnel_children(counts: FunnelCounts) -> list:
+    """El embudo del stand como fila de lecturas: un conteo y su etapa."""
     stages = text("medimos", "embudo_etapas")
-    labels = [stages["iniciada"], stages["completa"], stages["practica"]]
-    values = [counts.started, counts.completed, counts.practiced]
-    base = max(counts.started, 1)
-    labels_text = [
-        f"{v}" if i == 0 else f"{v} ({100 * v / base:.0f} %)" for i, v in enumerate(values)
+    return [
+        _stat(str(counts.started), stages["iniciada"]),
+        _stat(str(counts.completed), stages["completa"]),
+        _stat(str(counts.practiced), stages["practica"]),
     ]
-    return go.Figure(
-        data=[
-            go.Bar(
-                x=values,
-                y=labels,
-                orientation="h",
-                marker={"color": [TRACE_COLOR, TRACE_COLOR, ALPHA_BAND_COLOR]},
-                text=labels_text,
-                textposition="outside",
-                textfont={"size": 12, "color": INK},
-                cliponaxis=False,
-                hoverinfo="skip",
-            )
-        ],
-        layout=_layout(
-            margin={"t": 4, "l": 8, "r": 60, "b": 4},
-            xaxis=_axis(visible=False, range=[0, base * 1.15]),
-            yaxis=_axis(autorange="reversed", automargin=True, showgrid=False),
-            bargap=0.35,
-            uniformtext={"minsize": 12, "mode": "show"},
-        ),
-    )
 
 
 # ================================================================== layout
@@ -449,74 +426,68 @@ def _graph(component_id: str, figure: go.Figure, height: str) -> dcc.Graph:
     )
 
 
-def _card(title: str, note: str, *children, card_id: str | None = None) -> html.Div:
-    content = [html.H3(title), html.P(render(note), className="mm-note"), *children]
-    extra = {}
-    if card_id:
-        # El aviso solo se ve cuando la tarjeta trae la clase is-excluded.
-        content.append(html.Div(text("avisos", "excluida"), className="mm-excluded-badge"))
-        extra["id"] = card_id
-    return html.Div(className="mm-plot", children=content, **extra)
+def _panel(
+    span: str, title: str, meta: str | None, *children, panel_id: str | None = None
+) -> html.Div:
+    head = [html.H2(title)]
+    if meta:
+        head.append(html.Span(meta, className="mm-meta"))
+    if panel_id:
+        # Solo se ve cuando el panel trae la clase is-excluded.
+        head.append(
+            html.Span(text("avisos", "excluida"), className="mm-chip is-bad mm-excluded-chip")
+        )
+    extra = {"id": panel_id} if panel_id else {}
+    return html.Div(
+        className=f"mm-panel {span}",
+        children=[html.Div(className="mm-panel-head", children=head), *children],
+        **extra,
+    )
 
 
 def measurement_view(funnel: FunnelCounts) -> html.Section:
-    """Seccion completa de la vista; empieza oculta."""
+    """Vista completa; empieza oculta. Paneles cortados de una sola superficie."""
     return html.Section(
         id="mm-view-medimos",
-        className="mm-medimos is-hidden",
+        className="mm-view mm-medimos is-hidden",
         children=[
-            html.Div(
-                className="mm-company-head",
-                children=[
-                    html.Div(
-                        [
-                            html.H2(text("medimos", "titulo")),
-                            html.P(text("medimos", "subtitulo"), className="mm-note"),
-                        ]
-                    ),
-                    html.Div(
-                        notice("simulada"),
-                        id="mm-sim-notice-medimos",
-                        className="mm-sim-notice is-hidden",
-                    ),
-                ],
+            _panel(
+                "mm-span-spectrogram",
+                text("medimos", "espectrograma"),
+                text("medimos", "espectrograma_meta"),
+                _graph("mm-spectrogram", spectrogram_figure(), "100%"),
             ),
-            html.Div(
-                className="mm-measure-grid",
-                children=[
-                    _card(
-                        text("medimos", "espectrograma_titulo"),
-                        text("medimos", "espectrograma_nota"),
-                        _graph("mm-spectrogram", spectrogram_figure(), "20vh"),
-                    ),
-                    _card(
-                        text("medimos", "curva_titulo"),
-                        text("medimos", "curva_nota"),
-                        _graph("mm-fit", fit_figure(), "17vh"),
-                        html.P(id="mm-exponent", className="mm-note"),
-                        card_id="mm-fit-card",
-                    ),
-                    _card(
-                        text("medimos", "historial_titulo"),
-                        text("medimos", "historial_nota"),
-                        _graph("mm-track", track_figure(), "14vh"),
-                    ),
-                    _card(
-                        text("medimos", "calidad_titulo"),
-                        text("medimos", "calidad_nota"),
-                        html.Div(quality_children(None), id="mm-quality", className="mm-kpis"),
-                        html.H3(text("medimos", "embudo_titulo"), className="mm-subhead"),
-                        _graph("mm-funnel", funnel_figure(funnel), "7vh"),
-                        html.P(render(text("medimos", "embudo_nota")), className="mm-note"),
-                    ),
-                ],
+            _panel(
+                "mm-span-fit",
+                text("medimos", "curva"),
+                None,
+                _graph("mm-fit", fit_figure(), "100%"),
+                html.Span(id="mm-exponent", className="mm-measured"),
+                panel_id="mm-fit-card",
             ),
-            html.Div(
-                className="mm-references",
-                children=[
-                    html.Span(text("medimos", "respaldo_titulo"), className="mm-references-title"),
-                    *[html.Span(render(item)) for item in text("medimos", "respaldo")],
-                ],
+            _panel(
+                "mm-span-track",
+                text("medimos", "historial"),
+                text("medimos", "historial_meta"),
+                _graph("mm-track", track_figure(), "100%"),
+            ),
+            _panel(
+                "mm-span-quality",
+                text("medimos", "calidad"),
+                None,
+                html.Div(quality_children(None), id="mm-quality", className="mm-stats"),
+                html.Div(
+                    className="mm-panel-head mm-subhead",
+                    children=[html.H2(text("medimos", "embudo"))],
+                ),
+                html.Div(funnel_children(funnel), id="mm-funnel", className="mm-stats"),
+                html.Div(
+                    className="mm-refs",
+                    children=[
+                        html.Span(text("medimos", "respaldo_titulo")),
+                        *[html.Span(r) for r in text("medimos", "respaldo")],
+                    ],
+                ),
             ),
         ],
     )

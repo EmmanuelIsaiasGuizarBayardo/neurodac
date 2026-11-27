@@ -212,7 +212,7 @@
   "mindmetric": {
     "marca": {
       "nombre": "MindMetric",
-      "respaldo": "Tecnología de DUNNE"
+      "respaldo": "DUNNE"
     },
     "vistas": {
       "persona": "Tu sesión",
@@ -221,41 +221,33 @@
     },
     "fuente": {
       "en_vivo": "En vivo",
+      "simulada": "Señal simulada",
       "sin_fuente": "Sin conexión"
     },
     "persona": {
-      "senal_titulo": "Tu señal en vivo",
-      "senal_nota": "Últimos 4 segundos, filtrada de 1 a 45 Hz. En rojo, lo que no viene del cerebro: un parpadeo o un movimiento.",
-      "espectro_titulo": "Cómo se reparte por frecuencia",
-      "espectro_nota": "La franja marca tu ritmo *alfa*, alrededor de tu frecuencia alfa individual.",
-      "indicador_titulo": "Tu ritmo alfa, comparado contigo",
-      "indicador_nota": "Se compara solo con tu propia línea base: sin puntajes y sin comparaciones con otras personas.",
+      "senal": "Señal",
+      "senal_meta": "últimos 4 s, 1 a 45 Hz",
+      "espectro": "Frecuencias",
+      "espectro_meta": "últimos 2 s",
+      "indicador": "Tu ritmo alfa",
       "zonas": {
-        "debajo": "Por debajo de tu rango habitual",
+        "debajo": "Por debajo de tu rango",
         "zona": "En tu zona habitual",
-        "encima": "Por encima de tu rango habitual"
+        "encima": "Por encima de tu rango"
       },
       "estados": {
-        "esperando": "Esperando una señal estable.",
-        "sin_linea_base": "Para comparar, primero medimos cómo es tu señal en reposo.",
-        "midiendo": "Midiendo tu línea base: ojos abiertos, mirada al frente y sin hablar.",
-        "en_vivo": "Prueba: cierra los ojos 10 segundos y observa.",
-        "ajustando": "Ajustando la señal: hubo un parpadeo o un movimiento.",
-        "pausa": "En pausa hasta que la señal se estabilice."
+        "esperando": "Esperando señal estable",
+        "sin_linea_base": "Mide tu línea base para comparar",
+        "midiendo": "Midiendo: ojos abiertos, sin hablar",
+        "en_vivo": "Cierra los ojos 10 s y observa",
+        "ajustando": "Parpadeo o movimiento: ajustando",
+        "pausa": "En pausa: señal inestable"
       },
       "boton_medir": "Medir línea base",
       "boton_repetir": "Medir de nuevo",
-      "linea_base_abreviada": "Línea base abreviada para esta demostración: 30 segundos. En uso real dura 2 minutos."
+      "linea_base_meta": "línea base de 30 s, versión demo"
     },
     "empresa": {
-      "titulo": "Lo que ve la empresa",
-      "subtitulo": "Piloto de 20 personas, semana 7 de 12.",
-      "aviso_simulados": "Datos simulados: no corresponden a ninguna persona ni empresa.",
-      "participacion_titulo": "Participación semanal, toda la empresa",
-      "participacion_eje": "Participación (%)",
-      "semana": "Semana",
-      "sesiones": "sesiones por persona esta semana, mediana entre quienes participaron",
-      "grupos_titulo": "Participación por grupo, esta semana",
       "grupos": {
         "todos": "Toda la empresa",
         "operaciones": "Operaciones",
@@ -265,34 +257,124 @@
       "tamano": "Grupo de {n} personas",
       "oculto": "No se muestra",
       "reglas": {
-        "oculto": "El mínimo es de 5 personas por grupo. Con menos, cualquier dato apuntaría a alguien.",
-        "rango": "Con menos de 10 personas se reporta en rangos, para que no se pueda deducir quién participó.",
-        "porcentaje": "Porcentaje redondeado a múltiplos de 10."
+        "oculto": "Con menos de 5 personas no se muestra nada.",
+        "rango": "Con menos de 10 personas, solo rangos.",
+        "porcentaje": "Redondeado a múltiplos de 10."
       },
       "rangos": {
         "menos": "Menos de la mitad participó",
         "mitad": "Cerca de la mitad participó",
         "mas": "Más de la mitad participó"
       },
-      "nunca_titulo": "La empresa nunca ve",
-      "nunca": [
-        "La señal cerebral de nadie",
-        "Resultados individuales",
-        "Quién participa y quién no",
-        "Comparaciones entre personas"
-      ],
-      "acuerdo_titulo": "Se acuerda antes de empezar el piloto",
-      "acuerdo": [
-        "Participación y constancia, siempre en agregado",
-        "Una escala de estrés autorreportada, al inicio y al final",
-        "Qué tendría que pasar para considerar que funcionó"
+      "aviso_simulados": "Datos simulados"
+    },
+    "organizacion": {
+      "flujo": "Cómo funciona",
+      "etapas": {
+        "sensor": "Sensor",
+        "senal": "Señal",
+        "limpieza": "Limpieza",
+        "analisis": "Análisis",
+        "resultado": "Resultado"
+      },
+      "vivo": {
+        "sin_conexion": "sin conexión",
+        "tramas": "{n} tramas/s",
+        "limpieza": "{n} parpadeos apartados, {p} % útil",
+        "sin_base": "sin línea base",
+        "resultado": "solo grupos de 5 o más"
+      },
+      "apps_titulo": "Qué podríamos construir",
+      "apps": {
+        "bienestar": {
+          "titulo": "Bienestar y entrenamiento",
+          "estado": "demo"
+        },
+        "consumidores": {
+          "titulo": "Investigación de consumidores",
+          "estado": "medida"
+        },
+        "experiencia": {
+          "titulo": "Experiencia de usuario",
+          "estado": "medida"
+        },
+        "operacion": {
+          "titulo": "Atención en tareas críticas",
+          "estado": "medida"
+        },
+        "capacitacion": {
+          "titulo": "Capacitación y ergonomía",
+          "estado": "medida"
+        },
+        "control": {
+          "titulo": "Interfaces de control",
+          "estado": "demo"
+        },
+        "salud": {
+          "titulo": "Investigación en salud",
+          "estado": "medida"
+        },
+        "educacion": {
+          "titulo": "Educación y divulgación",
+          "estado": "hoy"
+        }
+      },
+      "estados": {
+        "demo": "En este demo",
+        "hoy": "Lo hacemos hoy",
+        "medida": "A la medida"
+      },
+      "probar": "Probar",
+      "privacidad": "Lo que vería la organización",
+      "demos": {
+        "cerrar": "Cerrar",
+        "control": {
+          "titulo": "Control con parpadeo doble",
+          "instruccion": "Parpadea dos veces seguidas para encender o apagar la luz.",
+          "encendida": "Encendida",
+          "apagada": "Apagada",
+          "contador": "dobles parpadeos: {n}",
+          "nota": "Una interfaz con la señal de los ojos, no con el pensamiento."
+        },
+        "estimulo": {
+          "titulo": "Respuesta a un estímulo",
+          "instruccion": "Muestra algo y presiona Marcar estímulo. Deja 8 s entre estímulos.",
+          "boton": "Marcar estímulo",
+          "conteo": "{n} completos, {p} en espera",
+          "nota": "Cambio de alfa frente a los 3 s previos. No mide agrado.",
+          "eje_x": "s desde el estímulo",
+          "eje_y": "cambio de alfa (dB)"
+        }
+      }
+    },
+    "medimos": {
+      "espectrograma": "Espectrograma",
+      "espectrograma_meta": "último minuto; en rojo, lo que no se usa",
+      "curva": "Oscilación sobre el fondo 1/f",
+      "exponente": "exponente 1/f: {valor}",
+      "historial": "Tu sesión",
+      "historial_meta": "últimos 2 min",
+      "calidad": "Calidad",
+      "limpio": "señal útil",
+      "parpadeos": "parpadeos apartados",
+      "tiempo_senal": "hasta señal útil",
+      "sin_dato": "sin dato",
+      "embudo": "Este stand, hoy",
+      "embudo_etapas": {
+        "iniciada": "líneas base",
+        "completa": "completas",
+        "practica": "con 1 min de práctica"
+      },
+      "respaldo_titulo": "Base",
+      "respaldo": [
+        "Donoghue et al. (2020)",
+        "Baumgartner et al. (2026)",
+        "Treves et al. (2025)"
       ]
     },
-    "limites": "Sin reclutamiento, sin evaluación de desempeño, sin detección de emociones y sin rankings de personas.",
+    "limites": "Prototipo. No es un dispositivo médico. Nada de esta sesión se guarda.",
     "avisos": {
-      "prototipo": "Prototipo con un indicador provisional. No es un dispositivo médico.",
-      "no_se_guarda": "Nada de esta sesión se guarda.",
-      "excluida": "Ventana con parpadeo o movimiento: se ve, pero no se usa."
+      "excluida": "no se usa"
     },
     "operacion": {
       "titulo": "Operación",
@@ -315,142 +397,6 @@
       "rotar_activar": "Rotación automática: activar",
       "rotar_desactivar": "Rotación automática: desactivar",
       "rotar_nota": "Con la rotación activada, si nadie toca la pantalla durante 45 s las vistas cambian solas cada 20 s. Cualquier toque la detiene."
-    },
-    "medimos": {
-      "titulo": "Cómo lo medimos, en vivo",
-      "subtitulo": "Todo se calcula en este momento con la señal de la diadema y nada se guarda.",
-      "espectrograma_titulo": "Espectrograma del último minuto",
-      "espectrograma_nota": "Cada columna es un instante. Con los ojos cerrados se aclara tu franja *alfa* (línea punteada). Los recuadros rojos marcan momentos con parpadeo o movimiento: se ven, pero no se usan.",
-      "eje_hace": "segundos atrás",
-      "curva_titulo": "La oscilación, separada del fondo",
-      "curva_nota": "Punteado, el fondo 1/f de tu señal. Sombreado, tu ritmo *alfa* por encima de ese fondo: eso medimos (Donoghue et al., 2020).",
-      "exponente": "Exponente aperiódico: {valor}. Es descriptivo: también lo mueven el músculo y el contacto.",
-      "historial_titulo": "Tu sesión, comparada contigo",
-      "historial_nota": "Franja azul: tu zona habitual. Zonas grises: líneas base.",
-      "calidad_titulo": "Calidad de la señal",
-      "calidad_nota": "Si la señal no sirve, lo decimos y no la usamos.",
-      "limpio": "del último minuto con señal útil",
-      "parpadeos": "parpadeos detectados y excluidos",
-      "tiempo_senal": "para tener señal útil al conectar",
-      "sin_dato": "sin dato",
-      "embudo_titulo": "Embudo de este stand, hoy",
-      "embudo_nota": "Solo conteos, sin datos de las personas, como se reporta un estudio de factibilidad en una exhibición (Baumgartner et al., 2026).",
-      "embudo_etapas": {
-        "iniciada": "Línea base iniciada",
-        "completa": "Línea base completa",
-        "practica": "Un minuto de práctica"
-      },
-      "respaldo_titulo": "En qué nos basamos",
-      "respaldo": [
-        "Donoghue et al. (2020), *Nature Neuroscience*: oscilación separada del fondo aperiódico.",
-        "Baumgartner et al. (2026), *JMIR Neurotechnology*: EEG de consumo en una exhibición, con calidad revisada y línea base de 30 s.",
-        "Treves et al. (2025), *JMIR*: el beneficio del EEG de consumo aún es modesto; medimos antes de prometer."
-      ]
-    },
-    "organizacion": {
-      "titulo": "Para tu organización",
-      "subtitulo": "Lo que viste es una muestra. Así funciona por dentro, y esto podríamos construir juntos.",
-      "flujo_titulo": "Cómo funciona, en vivo",
-      "etapas": {
-        "sensor": {
-          "titulo": "Sensor",
-          "texto": "Una diadema con un electrodo en la frente capta actividad eléctrica."
-        },
-        "senal": {
-          "titulo": "Señal",
-          "texto": "Llega a la computadora en tiempo real."
-        },
-        "limpieza": {
-          "titulo": "Limpieza",
-          "texto": "Detectamos parpadeos y movimientos y los apartamos del análisis."
-        },
-        "analisis": {
-          "titulo": "Análisis",
-          "texto": "Comparamos tu señal contigo, nunca con otras personas."
-        },
-        "resultado": {
-          "titulo": "Resultado",
-          "texto": "Tú ves tu sesión; la organización, solo datos agregados."
-        }
-      },
-      "vivo": {
-        "sin_conexion": "Sin conexión",
-        "tramas": "{n} tramas por segundo",
-        "limpieza": "{n} parpadeos apartados; {p} % de señal útil",
-        "sin_base": "Falta medir la línea base",
-        "resultado": "Solo grupos de 5 personas o más"
-      },
-      "apps_titulo": "Qué podríamos construir juntos",
-      "apps": {
-        "bienestar": {
-          "titulo": "Bienestar y entrenamiento",
-          "texto": "Programas voluntarios en los que cada persona practica con su propia señal.",
-          "estado": "demo"
-        },
-        "consumidores": {
-          "titulo": "Investigación de consumidores",
-          "texto": "Estudios con consentimiento sobre cómo cambia la señal ante un empaque, un anuncio o un producto.",
-          "estado": "medida"
-        },
-        "experiencia": {
-          "titulo": "Experiencia de usuario",
-          "texto": "Sumar señales del cuerpo a las pruebas con usuarios de una app o un sitio.",
-          "estado": "medida"
-        },
-        "operacion": {
-          "titulo": "Atención en tareas críticas",
-          "texto": "Explorar atención o fatiga en simuladores o tareas de riesgo, de forma voluntaria y agregada.",
-          "estado": "medida"
-        },
-        "capacitacion": {
-          "titulo": "Capacitación y ergonomía",
-          "texto": "Medir actividad muscular (EMG) y esfuerzo durante entrenamientos o en el diseño de puestos.",
-          "estado": "medida"
-        },
-        "control": {
-          "titulo": "Interfaces de control",
-          "texto": "Controlar software o dispositivos con señales del cuerpo. Aquí: dos parpadeos seguidos encienden una luz.",
-          "estado": "demo"
-        },
-        "salud": {
-          "titulo": "Investigación en salud",
-          "texto": "Herramientas de investigación junto con instituciones de salud; no diagnóstico.",
-          "estado": "medida"
-        },
-        "educacion": {
-          "titulo": "Educación y divulgación",
-          "texto": "Talleres y demostraciones interactivas con señales del cerebro y del cuerpo.",
-          "estado": "hoy"
-        }
-      },
-      "estados": {
-        "demo": "Lo ves en este demo",
-        "hoy": "Lo hacemos hoy",
-        "medida": "Proyecto a la medida"
-      },
-      "privacidad_titulo": "Privacidad por diseño",
-      "privacidad_nota": "Elige un grupo y mira qué vería la organización. La empresa nunca ve la señal de nadie, resultados individuales ni quién participa.",
-      "probar": "Probar",
-      "demos": {
-        "cerrar": "Cerrar",
-        "control": {
-          "titulo": "Control con parpadeo doble",
-          "instruccion": "Parpadea dos veces seguidas, firme y rápido, para encender o apagar la luz.",
-          "encendida": "Encendida",
-          "apagada": "Apagada",
-          "contador": "Dobles parpadeos detectados: {n}",
-          "nota": "Usa la señal de los ojos que también capta la diadema. No es control con el pensamiento: es una interfaz con señales del cuerpo."
-        },
-        "estimulo": {
-          "titulo": "Respuesta a un estímulo",
-          "instruccion": "Muestra algo a la persona (una imagen, un producto o un sonido) y presiona Marcar estímulo en ese instante. Deja al menos 8 segundos entre estímulos.",
-          "boton": "Marcar estímulo",
-          "conteo": "Estímulos completos: {n}; en espera: {p}",
-          "nota": "Muestra cómo cambia el ritmo alfa después de cada estímulo, comparado con los 3 segundos previos. No dice si algo le gusta a la persona: es el bloque base para diseñar un estudio.",
-          "eje_x": "segundos desde el estímulo",
-          "eje_y": "cambio de alfa (dB)"
-        }
-      }
     }
   }
 }

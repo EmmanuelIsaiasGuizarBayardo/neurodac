@@ -84,6 +84,17 @@ BLINK_CEIL_UV = 150.0
 #: entonces la MAD describe al parpadeo y el umbral sube hasta el techo.
 LOW_QUARTILE_TO_SD = 1.0 / 0.31863936
 BLINK_REFRACTORY_S = 0.4
+#: Histeresis: un cruce solo cuenta como parpadeo nuevo si antes la banda paso
+#: BLINK_QUIET_S por debajo de la mitad del umbral. Sin esto, la cola de un
+#: parpadeo con ruido de fondo volvia a cruzar ~0.45 s despues y contaba dos
+#: veces, lo que encendia la luz de la demo de control sin pedirlo.
+BLINK_QUIET_S = 0.1
+BLINK_QUIET_FACTOR = 0.5
+#: Banda para contar parpadeos (no para marcar artefactos). Con el paso alto en
+#: 0.5 Hz cada parpadeo deja un lobulo negativo casi tan grande como el y dos
+#: parpadeos seguidos se funden; con 0.05 Hz el parpadeo queda monofasico y
+#: entre los dos de un doble parpadeo la banda vuelve casi a cero.
+BLINK_COUNT_BAND_HZ = (0.05, 6.0)
 #: Doble parpadeo voluntario: dos parpadeos contados con no más de 1 s entre sí
 #: (el mínimo lo pone el refractario de 0.4 s). Tras uno, 1.5 s sin detectar
 #: otro, para que un tercer parpadeo no encadene una segunda orden.
@@ -380,6 +391,11 @@ class LiveAnalyzer:
             BLINK_ORDER, BLINK_BAND_HZ, btype="bandpass", fs=fs, output="sos"
         )
         self._zi_blink: np.ndarray | None = None
+        self._sos_count = signal.butter(
+            BLINK_ORDER, BLINK_COUNT_BAND_HZ, btype="bandpass", fs=fs, output="sos"
+        )
+        self._zi_count: np.ndarray | None = None
+        self._count_band = np.zeros(0)
         self._blink_band = np.zeros(0)
         self._blink_threshold = BLINK_FLOOR_UV
         self._blink_count = 0
@@ -388,6 +404,8 @@ class LiveAnalyzer:
         self._alpha_db: float | None = None
         self._last_alpha_at: float | None = None
         self._blink_prev_over = False
+        self._blink_armed = True
+        self._quiet_run = 0
         self._samples_seen = 0
         self._last_blink_sample = -(10**9)
         self._fit_hz: np.ndarray | None = None
@@ -452,6 +470,18 @@ class LiveAnalyzer:
         y, self._zi_blink = signal.sosfilt(self._sos_blink, x, zi=self._zi_blink)
         return y
 
+    def _count_band_block(self, samples_uv: np.ndarray) -> np.ndarray:
+        """Banda de conteo (0.05 a 6 Hz) con estado, y su bufer para el umbral."""
+        x = np.asarray(samples_uv, dtype=float)
+        if x.size == 0:
+            return x
+        if self._zi_count is None:
+            self._zi_count = signal.sosfilt_zi(self._sos_count) * x[0]
+        y, self._zi_count = signal.sosfilt(self._sos_count, x, zi=self._zi_count)
+        keep = max(self._display_n, self._window_n) + self._pad_n
+        self._count_band = np.concatenate([self._count_band, y])[-keep:]
+        return y
+
     @property
     def blink_threshold_uv(self) -> float:
         """Umbral de parpadeo vigente, en uV sobre la banda de 0.5 a 6 Hz."""
@@ -472,7 +502,7 @@ class LiveAnalyzer:
         """
         blink_band = self.blink_band_block(samples_uv)
         self._append(self.filter_block(samples_uv), blink_band)
-        self._count_blinks(blink_band, signal_ready)
+        self._count_blinks(self._count_band_block(samples_uv), signal_ready)
         self._update_display_psd(now)
         status, zone, z = self._evaluate(now, signal_ready)
         trace_t, trace, artifact = self._display_trace()
@@ -512,28 +542,39 @@ class LiveAnalyzer:
         )
 
     def _count_blinks(self, blink_band: np.ndarray, ready: bool) -> None:
-        """Cuenta cruces ascendentes del umbral, con un periodo refractario.
+        """Cuenta parpadeos con histeresis y periodo refractario.
 
-        El refractario evita contar dos veces un parpadeo cuya forma de onda
-        cruza el umbral mas de una vez.
+        Un cruce ascendente del umbral cuenta solo si el detector esta armado:
+        la banda tuvo que pasar `BLINK_QUIET_S` por debajo de la mitad del
+        umbral desde el ultimo parpadeo. El refractario cubre ademas el lobulo
+        negativo que deja el filtro detras de cada parpadeo.
         """
         n = blink_band.size
         if n == 0:
             return
-        over = np.abs(blink_band) > self._blink_threshold
-        previous = np.concatenate(([self._blink_prev_over], over[:-1]))
-        rising = np.flatnonzero(over & ~previous)
+        threshold = self._robust_threshold(self._count_band)
+        quiet_level = BLINK_QUIET_FACTOR * threshold
+        quiet_n = int(BLINK_QUIET_S * self.fs)
         refractory = int(BLINK_REFRACTORY_S * self.fs)
-        for offset in rising:
-            index = self._samples_seen + int(offset)
-            if ready and index - self._last_blink_sample > refractory:
-                gap = index - self._last_blink_sample
-                self._blink_count += 1
-                if gap <= DOUBLE_BLINK_MAX_S * self.fs and index >= self._double_cooldown_until:
-                    self._double_count += 1
-                    self._double_cooldown_until = index + int(DOUBLE_BLINK_COOLDOWN_S * self.fs)
-                self._last_blink_sample = index
-        self._blink_prev_over = bool(over[-1])
+        for offset, value in enumerate(np.abs(blink_band)):
+            if value < quiet_level:
+                self._quiet_run += 1
+                if self._quiet_run >= quiet_n:
+                    self._blink_armed = True
+            else:
+                self._quiet_run = 0
+            over = value > threshold
+            if over and not self._blink_prev_over:
+                index = self._samples_seen + offset
+                if ready and self._blink_armed and index - self._last_blink_sample > refractory:
+                    gap = index - self._last_blink_sample
+                    self._blink_count += 1
+                    self._blink_armed = False
+                    if gap <= DOUBLE_BLINK_MAX_S * self.fs and index >= self._double_cooldown_until:
+                        self._double_count += 1
+                        self._double_cooldown_until = index + int(DOUBLE_BLINK_COOLDOWN_S * self.fs)
+                    self._last_blink_sample = index
+            self._blink_prev_over = over
         self._samples_seen += n
 
     def _adaptive_blink_threshold(self) -> float:
@@ -543,9 +584,12 @@ class LiveAnalyzer:
         fondo aunque hasta tres cuartas partes del bufer sean parpadeos. Con
         menos de 1 s de datos se usa el piso.
         """
-        if self._blink_band.size < int(self.fs):
+        return self._robust_threshold(self._blink_band)
+
+    def _robust_threshold(self, band: np.ndarray) -> float:
+        """BLINK_K desviaciones robustas de `band`, entre el piso y el techo."""
+        if band.size < int(self.fs):
             return BLINK_FLOOR_UV
-        band = self._blink_band
         deviation = np.abs(band - np.median(band))
         robust_sd = LOW_QUARTILE_TO_SD * float(np.percentile(deviation, 25))
         return float(np.clip(BLINK_K * robust_sd, BLINK_FLOOR_UV, BLINK_CEIL_UV))
